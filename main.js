@@ -109,6 +109,8 @@ function createWindow() {
     backgroundColor: '#F7F7F9',
     icon: path.join(__dirname, 'assets', 'icon.ico'),
     autoHideMenuBar: true,
+    frame: false, // the portal draws its own white top bar (window controls in the UI)
+    backgroundColor: '#FFFFFF',
     webPreferences: { preload: path.join(__dirname, 'app-preload.js'), contextIsolation: true, nodeIntegration: false },
     show: false,
   });
@@ -281,6 +283,10 @@ ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide
 // (a scanned ID-card barcode) is sent as a token. Validated server-side.
 ipcMain.handle('getStationName', () => stationName());
 ipcMain.handle('lockStation', () => { lockStation(); });
+// Window controls for the portal's custom (frameless) top bar.
+ipcMain.handle('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
+ipcMain.handle('win:maximize', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.isMaximized() ? w.unmaximize() : w.maximize(); });
+ipcMain.handle('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close());
 ipcMain.handle('pinLogin', async (e, value) => {
   const v = String(value || '').trim();
   if (!v) return { error: 'Enter your PIN' };

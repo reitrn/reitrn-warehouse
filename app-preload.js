@@ -4,4 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // in-page sidebar trigger the native PIN lock / switch-user.
 contextBridge.exposeInMainWorld('reitrnApp', {
   lock: () => ipcRenderer.invoke('lockStation'),
+  minimize: () => ipcRenderer.invoke('win:minimize'),
+  maximize: () => ipcRenderer.invoke('win:maximize'),
+  close: () => ipcRenderer.invoke('win:close'),
 });
