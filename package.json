@@ -1,0 +1,44 @@
+{
+  "name": "reitrn-lite-warehouse",
+  "version": "1.0.0",
+  "description": "reitrn. Warehouse (Lite) — desktop station app for the reitrn portal warehouse: inspection, scanning, webcam capture and built-in label printing.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.reitrn.lite-warehouse",
+    "productName": "reitrn Warehouse",
+    "copyright": "reitrn.",
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "reitrn-warehouse-setup.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "runAfterFinish": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    },
+    "files": [
+      "main.js",
+      "printer.js",
+      "settings-preload.js",
+      "settings/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ]
+  }
+}

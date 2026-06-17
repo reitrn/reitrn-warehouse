@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>reitrn Print Agent Lite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink:     #0F172A;
+      --teal:    #00C4A7;
+      --teal-dim:#00A389;
+      --muted:   #64748B;
+      --border:  #E2E8F0;
+      --surface: #F8FAFC;
+      --white:   #FFFFFF;
+      --alert:   #EF4444;
+      --amber:   #F59E0B;
+      --green:   #10B981;
+      --radius:  10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13px;
+      user-select: none;
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 20px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .wordmark { font-family: 'Inter', sans-serif; font-size: 34px; letter-spacing: -1.5px; line-height: 1; }
+    .wordmark .black { font-weight: 900; color: var(--ink); }
+    .wordmark .teal  { font-weight: 900; color: var(--teal); }
+    .wordmark-sub {
+      font-family: 'Inter', sans-serif;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: var(--teal);
+      text-transform: uppercase;
+      margin-top: 5px;
+    }
+    .tray-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .tray-btn:hover { background: var(--surface); }
+
+    /* ── Status bar ── */
+    .status-bar {
+      padding: 10px 20px;
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .status-dot.connected    { background: var(--green); box-shadow: 0 0 0 3px #10b98120; }
+    .status-dot.connecting   { background: var(--amber); animation: pulse 1.2s infinite; }
+    .status-dot.disconnected { background: var(--muted); }
+    .status-dot.error        { background: var(--alert); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .status-text { font-size: 12px; font-weight: 600; color: var(--ink); }
+    .status-sub  { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    /* ── Scroll body ── */
+    .body {
+      height: calc(100vh - 97px);
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .body::-webkit-scrollbar { width: 4px; }
+    .body::-webkit-scrollbar-track { background: transparent; }
+    .body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .card-label {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    /* ── Printer section ── */
+    .printer-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    select, input[type="text"] {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+      background: var(--surface);
+      outline: none;
+    }
+    select:focus, input[type="text"]:focus {
+      border-color: var(--teal);
+      box-shadow: 0 0 0 2px #00c4a720;
+    }
+    .btn {
+      padding: 8px 12px;
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ink  { background: var(--ink); color: var(--white); }
+    .btn-ink:hover:not(:disabled) { opacity: 0.85; }
+    .btn-teal { background: var(--teal); color: var(--white); }
+    .btn-teal:hover:not(:disabled) { background: var(--teal-dim); }
+    .btn-surface {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-surface:hover:not(:disabled) { background: var(--border); }
+
+    .test-result {
+      margin-top: 8px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      display: none;
+    }
+    .test-result.success { background: #10b98115; color: var(--green); border: 1px solid #10b98130; }
+    .test-result.error   { background: #ef444415; color: var(--alert); border: 1px solid #ef444430; }
+
+    /* ── Settings row ── */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+    }
+    .setting-row + .setting-row {
+      border-top: 1px solid var(--surface);
+    }
+    .setting-label { font-size: 12px; font-weight: 600; color: var(--ink); }
+    .setting-sub   { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    /* Toggle switch */
+    .toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: var(--border);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      left: 3px; top: 3px;
+      background: var(--white);
+      border-radius: 50%;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .toggle input:checked + .toggle-slider { background: var(--teal); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+    /* ── Jobs ── */
+    .job-list { display: flex; flex-direction: column; gap: 6px; }
+    .job-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--surface);
+      border-radius: 7px;
+      border: 1px solid var(--border);
+    }
+    .job-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .job-dot.done     { background: var(--green); }
+    .job-dot.printing { background: var(--amber); animation: pulse 1s infinite; }
+    .job-dot.error    { background: var(--alert); }
+    .job-dot.pending  { background: var(--muted); }
+    .job-info { flex: 1; min-width: 0; }
+    .job-printer { font-size: 11px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .job-meta   { font-size: 10px; color: var(--muted); }
+    .job-time   { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+
+    .empty-jobs {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 20px 0;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      font-size: 10px;
+      color: var(--border);
+      font-weight: 600;
+      padding-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="wordmark">
+        <span class="black">re</span><span class="teal">i</span><span class="black">trn</span><span class="teal">.</span>
+      </div>
+      <div class="wordmark-sub">print agent lite</div>
+    </div>
+    <button class="tray-btn" onclick="window.reitrn.minimizeToTray()">Minimise to tray</button>
+  </div>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div class="status-dot connected" id="statusDot"></div>
+    <span class="status-text" id="statusText">Ready</span>
+  </div>
+
+  <!-- Body -->
+  <div class="body">
+
+    <!-- Printer -->
+    <div class="card">
+      <div class="card-label" style="display:flex;align-items:center;justify-content:space-between;">
+        Printer
+        <button class="btn btn-surface" style="padding:3px 8px;font-size:11px;" onclick="refreshPrinters()">↻ Refresh</button>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
+          Label Printer
+        </div>
+        <div class="printer-row" style="margin-bottom:6px;">
+          <select id="printerSelect" style="flex:1;" onchange="savePrinter(this.value)">
+            <option value="">Select a printer…</option>
+          </select>
+        </div>
+        <button class="btn btn-teal" id="testBtn" onclick="testPrint()" style="width:100%">
+          Test Print
+        </button>
+      </div>
+
+      <div class="test-result" id="testResult"></div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card">
+      <div class="card-label">Settings</div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Start with Windows</div>
+          <div class="setting-sub">Auto-launch on startup</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoStart" onchange="saveAutoStart(this.checked)" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Recent jobs -->
+    <div class="card">
+      <div class="card-label">Recent Jobs</div>
+      <div class="job-list" id="jobList">
+        <div class="empty-jobs">No print jobs yet</div>
+      </div>
+    </div>
+
+    <div class="footer">reitrn. v1.0.0 lite</div>
+  </div>
+
+  <script>
+    let currentPrinters = [];
+    let selectedPrinter = '';
+
+    // ── Init ───────────────────────────────────────────────────────────────────
+
+    window.reitrn.getState().then((state) => {
+      setPrinters(state.printers, state.printer);
+      document.getElementById('autoStart').checked = state.autoStart !== false;
+      renderJobs(state.recentJobs || []);
+    });
+
+    window.reitrn.onJobsUpdate((jobs) => renderJobs(jobs));
+
+    // ── Printers ───────────────────────────────────────────────────────────────
+
+    function setPrinters(printers, selected) {
+      currentPrinters = printers;
+      selectedPrinter = selected || '';
+
+      const sel = document.getElementById('printerSelect');
+      sel.innerHTML = '<option value="">Select a printer…</option>';
+      printers.forEach((name) => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name === selected) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    function savePrinter(name) {
+      selectedPrinter = name;
+      window.reitrn.setSetting('printer', name);
+    }
+
+    function refreshPrinters() {
+      window.reitrn.refreshPrinters().then((state) => {
+        setPrinters(state.printers, state.printer);
+      });
+    }
+
+    // ── Test print ──────────────────────────────────────────────────────────────
+
+    function testPrint() {
+      const sel = document.getElementById('printerSelect');
+      const printer = sel.value;
+      if (!printer) {
+        alert('Please select a printer first');
+        return;
+      }
+
+      const result = document.getElementById('testResult');
+      result.className = 'test-result';
+      result.textContent = 'Printing test label…';
+      result.style.display = 'block';
+
+      window.reitrn.testPrint(printer).then((ok) => {
+        result.className = ok ? 'test-result success' : 'test-result error';
+        result.textContent = ok ? '✓ Test print sent' : '✗ Print failed';
+        setTimeout(() => { result.style.display = 'none'; }, 3000);
+      });
+    }
+
+    // ── Settings ────────────────────────────────────────────────────────────────
+
+    function saveAutoStart(value) {
+      window.reitrn.setSetting('autoStart', value);
+    }
+
+    // ── Jobs ────────────────────────────────────────────────────────────────────
+
+    function renderJobs(jobs) {
+      const list = document.getElementById('jobList');
+      if (!jobs || jobs.length === 0) {
+        list.innerHTML = '<div class="empty-jobs">No print jobs yet</div>';
+        return;
+      }
+
+      list.innerHTML = jobs.slice(0, 20).map((job) => `
+        <div class="job-item">
+          <div class="job-dot ${job.status}"></div>
+          <div class="job-info">
+            <div class="job-printer">${job.printer}</div>
+            <div class="job-meta">${job.status.charAt(0).toUpperCase() + job.status.slice(1)}</div>
+          </div>
+          <div class="job-time">${formatTime(job.time)}</div>
+        </div>
+      `).join('');
+    }
+
+    function formatTime(date) {
+      if (!date) return '';
+      const d = new Date(date);
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+  </script>
+</body>
+</html>
