@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, session, shell, nativeImage } = require('electron');
 const path = require('path');
 const http = require('http');
 const os = require('os');
@@ -44,6 +44,46 @@ app.setName('reitrn Warehouse');
 // Windows: group + icon the taskbar entry under our identity, not Electron's.
 if (process.platform === 'win32') app.setAppUserModelId('com.reitrn.warehouse');
 
+// ── The living gradient — the running window + tray icon shift colour each week.
+// (The packaged .exe/.ico stays fixed; this only recolours the icon while running.)
+// Mirror of reitrn-www/living-gradient.js. Rasterised via a hidden window because
+// nativeImage can't render SVG directly.
+const WK_ANCHORS = ['#C21460','#8601AF','#4424D6','#0247FE','#347C98','#66B032','#B2D732','#FEFE33','#FABC02','#FB9902','#FD5308','#FE2712'];
+function _h2r(h){h=h.replace('#','');return[parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];}
+function _r2hsl(r,g,b){r/=255;g/=255;b/=255;var mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0,s=0,l=(mx+mn)/2;if(d){s=l>0.5?d/(2-mx-mn):d/(mx+mn);if(mx===r)h=((g-b)/d+(g<b?6:0));else if(mx===g)h=((b-r)/d+2);else h=((r-g)/d+4);h*=60;}return{h:h,s:s,l:l};}
+function _hsl2hex(h,s,l){h=(h%360+360)%360;s=Math.max(0,Math.min(1,s));l=Math.max(0,Math.min(1,l));var c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2,r,g,b;if(h<60){r=c;g=x;b=0;}else if(h<120){r=x;g=c;b=0;}else if(h<180){r=0;g=c;b=x;}else if(h<240){r=0;g=x;b=c;}else if(h<300){r=x;g=0;b=c;}else{r=c;g=0;b=x;}function t(v){v=Math.round((v+m)*255);return('0'+v.toString(16)).slice(-2);}return('#'+t(r)+t(g)+t(b)).toUpperCase();}
+function _lerpH(a,b,t){var d=b-a;if(d>180)d-=360;if(d<-180)d+=360;return a+d*t;}
+function _rgblerp(a,b,t){function p(v){return('0'+Math.round(v).toString(16)).slice(-2);}return('#'+p(a[0]+(b[0]-a[0])*t)+p(a[1]+(b[1]-a[1])*t)+p(a[2]+(b[2]-a[2])*t)).toUpperCase();}
+const _HSL = WK_ANCHORS.map((a) => { const r = _h2r(a); return _r2hsl(r[0], r[1], r[2]); });
+function _baseHsl(frac){var pos=frac*12,i=Math.floor(pos),t=pos-i;i=((i%12)+12)%12;var j=(i+1)%12,X=_HSL[i],Y=_HSL[j];return{h:_lerpH(X.h,Y.h,t),s:X.s+(Y.s-X.s)*t,l:X.l+(Y.l-X.l)*t};}
+const _DR=[254,39,18],_DT=[0,184,154],_DW=[];for(let k=0;k<52;k++){if(Math.floor(k/52*12)===11)_DW.push(k);}
+function weekGradient(){const d=new Date(),s=new Date(d.getFullYear(),0,1),w=Math.max(0,Math.min(51,Math.floor((d-s)/(7*86400000))));if(Math.floor(w/52*12)===11){const i=_DW.indexOf(w),n=_DW.length;return{start:_rgblerp(_DR,_DT,i/n),end:_rgblerp(_DR,_DT,(i+1)/n)};}const b=_baseHsl((w+0.5)/52);return{start:_hsl2hex(b.h-14,b.s,b.l+0.10),end:_hsl2hex(b.h+14,b.s,b.l-0.10)};}
+const RI_PATHS = '<path d="M28.76,132.71V59.55h22.18v13.35h.79c1.31-4.84,3.48-8.43,6.51-10.76,3.03-2.33,6.55-3.5,10.57-3.5,1.05,0,2.15.07,3.3.2,1.16.13,2.21.33,3.17.59v19.89c-1.09-.39-2.52-.69-4.29-.88s-3.35-.29-4.74-.29c-2.79,0-5.3.62-7.52,1.86s-3.97,2.96-5.23,5.14c-1.27,2.18-1.9,4.73-1.9,7.66v39.91h-22.83Z"/><path d="M90.51,50.98c-3.23,0-6-1.08-8.31-3.24-2.31-2.16-3.47-4.74-3.47-7.75s1.16-5.65,3.47-7.79c2.31-2.14,5.08-3.21,8.31-3.21s6.06,1.07,8.38,3.21c2.31,2.14,3.47,4.75,3.47,7.85s-1.16,5.58-3.47,7.72c-2.31,2.14-5.1,3.21-8.38,3.21ZM79.13,132.71V59.55h22.83v73.15h-22.83Z"/><path d="M128.96,141.08c-3.49,0-6.42-1.17-8.8-3.5-2.38-2.33-3.57-5.25-3.57-8.74s1.19-6.33,3.57-8.67c2.38-2.33,5.31-3.5,8.8-3.5s6.42,1.17,8.8,3.5c2.38,2.33,3.57,5.22,3.57,8.67s-1.19,6.4-3.57,8.74c-2.38,2.33-5.31,3.5-8.8,3.5Z"/>';
+function brandIconSvg(start, end){return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 170.08 170.08"><defs><linearGradient id="g" x1="0" y1="0" x2="170.08" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="'+start+'"/><stop offset="1" stop-color="'+end+'"/></linearGradient></defs><rect width="170.08" height="170.08" rx="34" fill="url(#g)"/><g fill="#ffffff">'+RI_PATHS+'</g></svg>';}
+async function rasterizePng(svg, size){
+  const win = new BrowserWindow({ show: false, width: size, height: size, webPreferences: { offscreen: false } });
+  try {
+    await win.loadURL('data:text/html,<!doctype html><meta charset="utf-8"><body></body>');
+    return await win.webContents.executeJavaScript(
+      '(function(){return new Promise(function(res,rej){var img=new Image();img.onload=function(){var c=document.createElement("canvas");c.width='+size+';c.height='+size+';var x=c.getContext("2d");x.drawImage(img,0,0,'+size+','+size+');res(c.toDataURL("image/png"));};img.onerror=function(){rej(new Error("svg"));};img.src='+JSON.stringify('data:image/svg+xml,'+encodeURIComponent(svg))+';});})()'
+    );
+  } finally { if (!win.isDestroyed()) win.destroy(); }
+}
+let _lastIconKey = null;
+async function applyWeekIcons(force){
+  try {
+    const g = weekGradient();
+    const key = g.start + g.end;
+    if (!force && key === _lastIconKey) return;   // unchanged week → skip the work
+    const svg = brandIconSvg(g.start, g.end);
+    const big = nativeImage.createFromDataURL(await rasterizePng(svg, 256));
+    const small = nativeImage.createFromDataURL(await rasterizePng(svg, 32));
+    for (const w of [mainWindow, settingsWindow, lockWindow]) { if (w && !w.isDestroyed()) w.setIcon(big); }
+    if (tray) tray.setImage(small);
+    _lastIconKey = key;
+  } catch (e) { /* fall back to the static .ico */ }
+}
+
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); } });
 
@@ -54,6 +94,10 @@ app.on('ready', () => {
   startLocalServer();
   fetchPinConfigured();
   app.setLoginItemSettings({ openAtLogin: store.get('autoStart', true), name: 'reitrn Warehouse' });
+  // Colour the running window + tray icon for this week, and re-check every 6h so an
+  // always-on station rolls over to the new colour without ever being restarted.
+  applyWeekIcons(true);
+  setInterval(() => applyWeekIcons(false), 6 * 60 * 60 * 1000);
 });
 
 // Does this merchant use PIN login? (No users → never gate.)
@@ -187,6 +231,7 @@ function showLock() {
   lockWindow.maximize();           // full size, not a little box — the PIN screen centres itself
   lockWindow.once('ready-to-show', () => lockWindow && lockWindow.show());
   lockWindow.loadFile('lock/index.html');
+  applyWeekIcons(true);   // colour the new lock window's icon + catch a week rollover
   lockWindow.on('closed', () => { lockWindow = null; });
 }
 
