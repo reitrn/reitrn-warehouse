@@ -108,10 +108,7 @@ function createWindow() {
     title: 'reitrn Warehouse',
     backgroundColor: '#F7F7F9',
     icon: path.join(__dirname, 'assets', 'icon.ico'),
-    autoHideMenuBar: true, // no menu bar — Lock/switch user lives in the sidebar + tray (Alt shows the menu)
-    // Brand the window-controls strip (min/max/close) in reitrn ink with white buttons.
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#FFFFFF', symbolColor: '#111118', height: 40 },
+    autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'app-preload.js'), contextIsolation: true, nodeIntegration: false },
     show: false,
   });
@@ -182,8 +179,6 @@ function showLock() {
     width: 1280, height: 832, minWidth: 1024, minHeight: 700, title: 'Sign in — reitrn Warehouse',
     backgroundColor: '#F7F7F9', icon: path.join(__dirname, 'assets', 'icon.ico'),
     autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#FFFFFF', symbolColor: '#111118', height: 40 },
     webPreferences: { preload: path.join(__dirname, 'lock-preload.js'), contextIsolation: true, nodeIntegration: false },
     show: false,
   });
