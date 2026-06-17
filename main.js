@@ -108,7 +108,7 @@ function createWindow() {
     title: 'reitrn Warehouse',
     backgroundColor: '#F7F7F9',
     icon: path.join(__dirname, 'assets', 'icon.ico'),
-    autoHideMenuBar: false, // keep the menu bar visible so Lock / switch user + Quit are findable
+    autoHideMenuBar: true, // no menu bar — Lock/switch user lives in the sidebar + tray (Alt shows the menu)
     webPreferences: { preload: path.join(__dirname, 'app-preload.js'), contextIsolation: true, nodeIntegration: false },
     show: false,
   });
