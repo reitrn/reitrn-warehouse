@@ -6,10 +6,12 @@ const { getInstalledPrinters, printRaw, generateTestLabel } = require('./printer
 
 const store = new Store();
 
-// Where the warehouse UI lives. Defaults to production; override for dev with
-//   REITRN_PORTAL_URL=http://localhost:3002 npm start
+// Which warehouse this station loads. One app, pointed by config:
+//   • Lite → https://portal.reitrn.com  (default, loads /warehouse/process)
+//   • Hub  → https://app.reitrn.com     (later; set REITRN_WAREHOUSE_URL to the full URL)
+// Dev: REITRN_WAREHOUSE_URL=http://localhost:3002/warehouse/process npm start
 const PORTAL_URL = (process.env.REITRN_PORTAL_URL || 'https://portal.reitrn.com').replace(/\/$/, '');
-const WAREHOUSE_URL = `${PORTAL_URL}/warehouse/process`;
+const WAREHOUSE_URL = process.env.REITRN_WAREHOUSE_URL || `${PORTAL_URL}/warehouse/process`;
 const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for printing
 
 let mainWindow = null;

@@ -1,28 +1,36 @@
-# reitrn Warehouse (Lite)
+# reitrn Warehouse
 
-Desktop **station app** for the reitrn portal warehouse. It runs reitrn.com Lite's
-inspection workflow on a warehouse PC and **replaces the separate Print Agent** —
-printing is built in.
+One desktop **station app** for the reitrn warehouse. It runs the inspection
+workflow on a warehouse PC and **replaces the separate Print Agent** — printing
+is built in.
 
-It is a thin Electron shell, **not** a second copy of the UI: the main window loads
-the portal's warehouse section (`portal.reitrn.com/warehouse`), so there is one
-codebase. The desktop app adds what a browser can't:
+**One app, pointed by config.** It's a thin Electron shell — *not* a copy of any
+UI. The main window loads a warehouse web app:
+
+- **Lite** → `https://portal.reitrn.com/warehouse` (default)
+- **Hub** → `https://app.reitrn.com` (later — set `REITRN_WAREHOUSE_URL`)
+
+The web apps differ a lot (Lite = one merchant's returns; Hub = reitrn staff across
+many enterprise clients), but the *shell* is identical, so there's one binary, one
+installer, one updater. The shell never bridges Hub↔Lite — it just loads one of them.
+
+The desktop app adds what a browser can't:
 
 - **Built-in label printing** — runs the same local print server on `localhost:3010`
   (`/ping`, `/print`, ZPL/TSPL) the warehouse UI already calls, so no separate
   Print Agent install. Pick the printer in **Station → Printer settings…**.
-- **Webcam recording + barcode scanning** — camera/mic are granted to the portal
-  origin so the unboxing/item-video capture works; USB keyboard-wedge scanners
-  type straight into the inspection screens (the UI already detects them).
-- **Station conveniences** — single-instance, maximised station window, tray,
-  auto-start, external links open in the OS browser.
+- **Webcam recording + barcode scanning** — camera/mic are granted to the loaded
+  warehouse origin so unboxing/item-video capture works; USB keyboard-wedge
+  scanners type straight into the inspection screens (the UI already detects them).
+- **Station conveniences** — single-instance, maximised window, tray, auto-start,
+  external links open in the OS browser.
 
 ## Run (dev)
 
 ```
 npm install
 # point at a local portal during development:
-REITRN_PORTAL_URL=http://localhost:3002 npm start
+REITRN_WAREHOUSE_URL=http://localhost:3002/warehouse/process npm start
 # default (no env) loads https://portal.reitrn.com/warehouse
 ```
 
@@ -34,22 +42,25 @@ npm run build      # → dist/reitrn-warehouse-setup.exe (+ portable)
 
 ## Config
 
-- `REITRN_PORTAL_URL` — portal base URL (default `https://portal.reitrn.com`).
-  The app loads `<base>/warehouse/process`.
+- `REITRN_WAREHOUSE_URL` — full warehouse URL to load (overrides everything).
+- `REITRN_PORTAL_URL` — portal base (default `https://portal.reitrn.com`); the app
+  loads `<base>/warehouse/process` when `REITRN_WAREHOUSE_URL` isn't set.
 
-## Still to wire (founder / follow-ups)
+## Roadmap / to wire (founder + follow-ups)
 
-- **Code signing** — set up an EV/OV cert in `electron-builder` (`win.certificateFile`
-  / env) so Windows SmartScreen doesn't warn on install.
-- **Auto-update** — add `electron-updater` + a release feed (e.g. GitHub Releases).
+- **Unified video upload** — move video to the Hub's store-and-forward pattern:
+  write `.webm` + sidecar to a local watch folder → presigned **R2** upload with
+  retry → `return_media` record. Lifts `server.js`/`watcher.js`/`uploader.js` from
+  `reitrn-returnhub-video-agent` so Lite and Hub upload identically. (Replaces the
+  in-page Firebase upload; needs a portal `/api/storage/r2-signed-url` + R2 creds.)
+- **Code signing** — EV/OV cert in `electron-builder` so Windows SmartScreen stays quiet.
+- **Auto-update** — `electron-updater` + a release feed (GitHub Releases).
 - **Per-user access (roles)** — once portal auth/roles land, a `warehouse` role
-  scopes who can use this; until then the app loads whatever the signed-in portal
-  session can see.
-- **Offline outbox** — durable local queue for scans/findings/media on poor wifi
-  (the video-agent store-and-forward pattern) — planned phase 2.
-- **Hub/Enterprise** — a separate, richer station app wrapping ReturnHub — later.
+  scopes who can use this. Also gives real "who processed/scanned what".
+- **Hub target** — point `REITRN_WAREHOUSE_URL` at `app.reitrn.com` (and, if wanted,
+  a build flavour with Hub branding/icon from this same source).
 
 ## Repo
 
-`github.com/reitrn/reitrn-lite-warehouse` (create the remote, then `git push -u origin main`).
+`github.com/reitrn/reitrn-warehouse` (create the remote, then `git push -u origin main`).
 Built on the proven `reitrn-lite-print-agent` print stack (`printer.js` carried over verbatim).
