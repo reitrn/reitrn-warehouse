@@ -174,11 +174,14 @@ function showLock() {
   if (mainWindow) mainWindow.hide();
   if (lockWindow) { lockWindow.show(); lockWindow.focus(); return; }
   lockWindow = new BrowserWindow({
-    width: 480, height: 640, resizable: false, title: 'Sign in — reitrn Warehouse',
+    width: 1280, height: 832, minWidth: 1024, minHeight: 700, title: 'Sign in — reitrn Warehouse',
     backgroundColor: '#F7F7F9', icon: path.join(__dirname, 'assets', 'icon.ico'),
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'lock-preload.js'), contextIsolation: true, nodeIntegration: false },
+    show: false,
   });
+  lockWindow.maximize();           // full size, not a little box — the PIN screen centres itself
+  lockWindow.once('ready-to-show', () => lockWindow && lockWindow.show());
   lockWindow.loadFile('lock/index.html');
   lockWindow.on('closed', () => { lockWindow = null; });
 }
