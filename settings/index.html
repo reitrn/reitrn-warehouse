@@ -272,6 +272,20 @@
   <!-- Body -->
   <div class="body">
 
+    <!-- Station -->
+    <div class="card">
+      <div class="card-label">Station</div>
+      <div style="margin-bottom:6px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
+          Station name
+        </div>
+        <input id="stationInput" type="text" placeholder="Station name"
+          style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border,#ECECF1);border-radius:8px;font-size:13px;"
+          onchange="saveStation(this.value)" />
+        <div id="stationHint" style="font-size:11px;color:var(--muted);margin-top:4px;"></div>
+      </div>
+    </div>
+
     <!-- Printer -->
     <div class="card">
       <div class="card-label" style="display:flex;align-items:center;justify-content:space-between;">
@@ -333,9 +347,16 @@
       setPrinters(state.printers, state.printer);
       document.getElementById('autoStart').checked = state.autoStart !== false;
       renderJobs(state.recentJobs || []);
+      const input = document.getElementById('stationInput');
+      input.value = state.stationName || '';
+      document.getElementById('stationHint').textContent = 'Computer name: ' + (state.machineName || '—') + ' · leave blank to use it';
     });
 
     window.reitrn.onJobsUpdate((jobs) => renderJobs(jobs));
+
+    function saveStation(value) {
+      window.reitrn.setSetting('stationName', (value || '').trim());
+    }
 
     // ── Printers ───────────────────────────────────────────────────────────────
 

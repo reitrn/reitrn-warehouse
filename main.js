@@ -1,10 +1,18 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, session, shell } = require('electron');
 const path = require('path');
 const http = require('http');
+const os = require('os');
 const Store = require('electron-store');
 const { getInstalledPrinters, printRaw, generateTestLabel } = require('./printer');
 
 const store = new Store();
+
+// Station identity = the machine, the way ReturnHub names stations via its agent.
+// Defaults to the computer name; a renamable alias overrides it. Reported to the
+// warehouse UI (via /status) so inspections record WHERE they happened — and so
+// cartons can be allocated to a station and not wander.
+const machineName = os.hostname();
+const stationName = () => store.get('stationName') || machineName;
 
 // Which warehouse this station loads. One app, pointed by config:
 //   • Lite → https://portal.reitrn.com  (default, loads /warehouse/process)
@@ -110,7 +118,7 @@ function openSettings() {
 // ── Tray ─────────────────────────────────────────────────────────────────────
 function createTray() {
   tray = new Tray(path.join(__dirname, 'assets', 'tray.ico'));
-  tray.setToolTip('reitrn Warehouse');
+  tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open warehouse', click: () => { if (mainWindow) mainWindow.show(); } },
     { label: 'Printer settings…', click: openSettings },
@@ -133,8 +141,8 @@ function handleRequest(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-  if (req.method === 'GET' && req.url === '/ping') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, app: 'reitrn-warehouse' })); return; }
-  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', '') })); return; }
+  if (req.method === 'GET' && req.url === '/ping') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, app: 'reitrn-warehouse', station: stationName() })); return; }
+  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName })); return; }
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
     req.on('data', (c) => { body += c; });
@@ -159,7 +167,7 @@ function handleRequest(req, res) {
 }
 
 // ── IPC for the printer-settings window ─────────────────────────────────────
-ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20) }));
+ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName }));
 ipcMain.handle('refreshPrinters', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', '') }));
 ipcMain.handle('testPrint', async (e, printerName) => {
   try { await printRaw(printerName, generateTestLabel()); addRecentJob({ id: `test_${Date.now()}`, printer: printerName, status: 'done', time: new Date() }); return true; }
@@ -168,6 +176,7 @@ ipcMain.handle('testPrint', async (e, printerName) => {
 ipcMain.handle('setSetting', async (e, key, value) => {
   store.set(key, value);
   if (key === 'autoStart') app.setLoginItemSettings({ openAtLogin: value, name: 'reitrn Warehouse' });
+  if (key === 'stationName' && tray) tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
 });
 ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide(); });
 
