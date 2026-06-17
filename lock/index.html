@@ -53,7 +53,7 @@
     function week(w){if(Math.floor(w/52*12)===11){var i=DW.indexOf(w),n=DW.length;return{s:rgblerp(DR,DT,i/n),e:rgblerp(DR,DT,(i+1)/n)};}var b=baseHsl((w+0.5)/52);return{s:hsl2hex(b.h-14,b.s,b.l+0.10),e:hsl2hex(b.h+14,b.s,b.l-0.10)};}
     var d=new Date(),s0=new Date(d.getFullYear(),0,1),w=Math.max(0,Math.min(51,Math.floor((d-s0)/(7*86400000))));
     var g=week(w),el=document.querySelector('.wordmark .g'),dot=document.querySelector('.wordmark .dot');
-    if(el)el.style.background='linear-gradient(90deg,'+g.s+','+g.e+')';
+    if(el)el.style.backgroundImage='linear-gradient(90deg,'+g.s+','+g.e+')';
     if(dot)dot.style.color=g.e;
   })();
 
