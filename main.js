@@ -36,8 +36,8 @@ let tray = null;
 let localServer = null;
 let activeUser = null;     // { id, name, role } — the PIN'd user at this station
 let idleTimer = null;      // auto-lock countdown (armed only while signed in)
-let mainReady = false;     // warehouse window finished loading
-let gatePassed = false;    // PIN gate satisfied (or not required)
+let gatePassed = false;    // PIN gate satisfied this session
+let pinConfigured = false; // merchant has warehouse PIN users
 let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({ ...j, time: j.time ? new Date(j.time) : new Date() }));
 
 app.setName('reitrn Warehouse');
@@ -50,24 +50,34 @@ app.on('ready', () => {
   createTray();
   createWindow();
   startLocalServer();
-  enforceGate();
+  fetchPinConfigured();
   app.setLoginItemSettings({ openAtLogin: store.get('autoStart', true), name: 'reitrn Warehouse' });
 });
 
-// Show the PIN lock if this merchant has warehouse users configured; otherwise
-// go straight in (never bricked before anyone is added). The warehouse window
-// only reveals once the gate is satisfied.
-async function enforceGate() {
+// Does this merchant use PIN login? (No users → never gate.)
+async function fetchPinConfigured() {
   try {
     const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-status?merchant=${encodeURIComponent(MERCHANT_SLUG)}`);
     const data = await res.json().catch(() => ({}));
-    if (data && data.configured) { showLock(); return; }
-  } catch { /* offline / not reachable → don't lock the station out */ }
-  gatePassed = true;
-  maybeShowMain();
+    pinConfigured = !!(data && data.configured);
+  } catch { pinConfigured = false; }
+  if (mainWindow) evaluateGate(mainWindow.webContents.getURL());
 }
 
-function maybeShowMain() { if (mainReady && gatePassed && mainWindow) mainWindow.show(); }
+// The PIN is SECONDARY to the account: it only appears once the station is signed
+// in (the window is on an authenticated page, not /login). So the order is always
+// email login first → then PIN. On the login page we just show the window.
+function evaluateGate(url) {
+  let p = '';
+  try { p = new URL(url).pathname } catch { /* about:blank etc. */ }
+  const onLogin = p.startsWith('/login') || p.startsWith('/auth') || p === '' || p === '/'
+  if (onLogin) { if (mainWindow) mainWindow.show(); return; }      // account login phase
+  if (pinConfigured && !gatePassed) { showLock(); return; }        // signed in → require PIN
+  if (mainWindow) mainWindow.show();                               // signed in + PIN done (or none)
+}
+
+app.on('window-all-closed', () => { /* keep running in tray (print server + station) */ });
+app.on('before-quit', () => { app.isQuitting = true; if (localServer) localServer.close(); });
 
 app.on('window-all-closed', () => { /* keep running in tray (print server + station) */ });
 app.on('before-quit', () => { app.isQuitting = true; if (localServer) localServer.close(); });
@@ -105,7 +115,11 @@ function createWindow() {
   // (accounts are made on the web; the app only signs in).
   mainWindow.webContents.setUserAgent(`${mainWindow.webContents.getUserAgent()} reitrnWarehouse/${app.getVersion()}`);
   mainWindow.loadURL(WAREHOUSE_URL);
-  mainWindow.once('ready-to-show', () => { mainReady = true; maybeShowMain(); });
+  // Decide login-vs-PIN on first paint and on every navigation, so the PIN only
+  // appears once the station is signed in (account first → then PIN).
+  mainWindow.once('ready-to-show', () => evaluateGate(mainWindow.webContents.getURL()));
+  mainWindow.webContents.on('did-navigate', (_e, url) => evaluateGate(url));
+  mainWindow.webContents.on('did-navigate-in-page', (_e, url) => evaluateGate(url));
 
   // Keep navigation inside the portal; open anything external in the OS browser.
   const sameSite = (url) => { try { return new URL(url).origin === new URL(PORTAL_URL).origin; } catch { return false; } };
@@ -276,9 +290,7 @@ ipcMain.handle('pinLogin', async (e, value) => {
       gatePassed = true;
       armIdle(); // start the inactivity countdown for this session
       if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()} · ${activeUser.name}`);
-      // Show the warehouse window reliably (don't depend on the ready-to-show
-      // race), then close the lock — otherwise we can end up with no window.
-      mainReady = true;
+      // Reveal the warehouse and close the lock.
       if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
       if (lockWindow) lockWindow.close();
       return { ok: true };
