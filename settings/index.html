@@ -284,6 +284,15 @@
           onchange="saveStation(this.value)" />
         <div id="stationHint" style="font-size:11px;color:var(--muted);margin-top:4px;"></div>
       </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
+          Auto-lock after (minutes)
+        </div>
+        <input id="idleInput" type="number" min="1" max="240" step="1"
+          style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border,#ECECF1);border-radius:8px;font-size:13px;"
+          onchange="saveIdle(this.value)" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Idle with no clicks, keys or scans → back to the PIN screen.</div>
+      </div>
     </div>
 
     <!-- Printer -->
@@ -350,12 +359,19 @@
       const input = document.getElementById('stationInput');
       input.value = state.stationName || '';
       document.getElementById('stationHint').textContent = 'Computer name: ' + (state.machineName || '—') + ' · leave blank to use it';
+      document.getElementById('idleInput').value = state.idleLockMin || 15;
     });
 
     window.reitrn.onJobsUpdate((jobs) => renderJobs(jobs));
 
     function saveStation(value) {
       window.reitrn.setSetting('stationName', (value || '').trim());
+    }
+
+    function saveIdle(value) {
+      const mins = Math.min(240, Math.max(1, Math.round(Number(value) || 15)));
+      document.getElementById('idleInput').value = mins;
+      window.reitrn.setSetting('idleLockMs', mins * 60000);
     }
 
     // ── Printers ───────────────────────────────────────────────────────────────

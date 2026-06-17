@@ -24,8 +24,10 @@ const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for pri
 // Which merchant this station belongs to (until account login in-app resolves it).
 const MERCHANT_SLUG = process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || 'reitrntest';
 // Auto-lock the station after this much inactivity (no clicks / keys / scans),
-// so an unattended station drops back to the PIN screen. Default 15 min.
-const IDLE_LOCK_MS = Number(process.env.REITRN_IDLE_LOCK_MS) || store.get('idleLockMs') || 15 * 60 * 1000;
+// so an unattended station drops back to the PIN screen. Env wins (for testing),
+// else the saved Station setting, else 15 min. Read live so changes apply at once.
+const DEFAULT_IDLE_MS = 15 * 60 * 1000;
+const idleLockMs = () => Number(process.env.REITRN_IDLE_LOCK_MS) || store.get('idleLockMs') || DEFAULT_IDLE_MS;
 
 let mainWindow = null;
 let settingsWindow = null;
@@ -180,7 +182,7 @@ function lockStation() {
 function armIdle() {
   if (idleTimer) clearTimeout(idleTimer);
   if (!gatePassed) return;
-  idleTimer = setTimeout(() => { if (gatePassed) lockStation(); }, IDLE_LOCK_MS);
+  idleTimer = setTimeout(() => { if (gatePassed) lockStation(); }, idleLockMs());
 }
 
 // ── Tray ─────────────────────────────────────────────────────────────────────
@@ -242,7 +244,7 @@ function handleRequest(req, res) {
 }
 
 // ── IPC for the printer-settings window ─────────────────────────────────────
-ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName }));
+ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName, idleLockMin: Math.round(idleLockMs() / 60000) }));
 ipcMain.handle('refreshPrinters', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', '') }));
 ipcMain.handle('testPrint', async (e, printerName) => {
   try { await printRaw(printerName, generateTestLabel()); addRecentJob({ id: `test_${Date.now()}`, printer: printerName, status: 'done', time: new Date() }); return true; }
@@ -252,6 +254,7 @@ ipcMain.handle('setSetting', async (e, key, value) => {
   store.set(key, value);
   if (key === 'autoStart') app.setLoginItemSettings({ openAtLogin: value, name: 'reitrn Warehouse' });
   if (key === 'stationName' && tray) tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
+  if (key === 'idleLockMs') armIdle(); // apply the new timeout immediately
 });
 ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide(); });
 
