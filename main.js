@@ -41,6 +41,8 @@ let pinConfigured = false; // merchant has warehouse PIN users
 let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({ ...j, time: j.time ? new Date(j.time) : new Date() }));
 
 app.setName('reitrn Warehouse');
+// Windows: group + icon the taskbar entry under our identity, not Electron's.
+if (process.platform === 'win32') app.setAppUserModelId('com.reitrn.warehouse');
 
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); } });
