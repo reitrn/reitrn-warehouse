@@ -35,7 +35,6 @@
     <input id="pin" type="password" inputmode="numeric" autocomplete="off" autofocus placeholder="••••" />
     <div class="err" id="err"></div>
     <div class="hint">Enter your PIN, or scan your ID card.</div>
-    <div class="pad" id="pad"></div>
   </div>
 <script>
   const pin = document.getElementById('pin');
@@ -43,22 +42,6 @@
 
   window.lock.station().then((s) => {
     document.getElementById('station').innerHTML = 'Station · <b>' + (s || '—') + '</b>';
-  });
-
-  // Numeric keypad (touch-friendly); typing and scanning also work.
-  const keys = ['1','2','3','4','5','6','7','8','9','⌫','0','↵'];
-  const pad = document.getElementById('pad');
-  keys.forEach((k) => {
-    const b = document.createElement('button');
-    b.textContent = k;
-    if (k === '↵') b.className = 'enter';
-    b.onclick = () => {
-      if (k === '⌫') pin.value = pin.value.slice(0, -1);
-      else if (k === '↵') submit();
-      else pin.value += k;
-      pin.focus();
-    };
-    pad.appendChild(b);
   });
 
   let busy = false;
