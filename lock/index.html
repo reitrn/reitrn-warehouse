@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Sign in — reitrn Warehouse</title>
+<style>
+  :root { --teal:#00B89A; --ink:#111118; --slate:#6B6B82; --panel:#F0F0F5; --border:#ECECF1; --alert:#E8334A; }
+  * { box-sizing: border-box; }
+  body { margin:0; height:100vh; display:flex; align-items:center; justify-content:center;
+    font-family:Inter,system-ui,sans-serif; background:#F7F7F9; color:var(--ink); }
+  .card { width:340px; text-align:center; }
+  .wordmark { font-weight:900; font-size:30px; letter-spacing:-.02em; margin-bottom:2px; }
+  .wordmark .g { background:linear-gradient(90deg,#00B89A 0%,#000 100%); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .sub { font-size:12px; color:var(--slate); margin-bottom:22px; }
+  .station { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.12em; color:var(--slate); margin-bottom:18px; }
+  .station b { color:var(--ink); }
+  input { width:100%; text-align:center; font-size:30px; letter-spacing:.4em; font-weight:800;
+    padding:14px; border:2px solid var(--border); border-radius:14px; outline:none; background:#fff; color:var(--ink); }
+  input:focus { border-color:var(--teal); }
+  .hint { font-size:12px; color:var(--slate); margin-top:12px; }
+  .err { font-size:13px; font-weight:700; color:var(--alert); margin-top:12px; min-height:18px; }
+  .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:16px; }
+  .pad button { padding:14px 0; font-size:18px; font-weight:700; border:1px solid var(--border); border-radius:12px;
+    background:#fff; color:var(--ink); cursor:pointer; }
+  .pad button:active { background:var(--panel); }
+  .pad .wide { grid-column:span 1; }
+  .enter { background:var(--ink); color:#fff; border:none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="wordmark"><span class="g">reitrn</span>.</div>
+    <div class="sub">Warehouse station</div>
+    <div class="station" id="station">Station</div>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" autofocus placeholder="••••" />
+    <div class="err" id="err"></div>
+    <div class="hint">Enter your PIN, or scan your ID card.</div>
+    <div class="pad" id="pad"></div>
+  </div>
+<script>
+  const pin = document.getElementById('pin');
+  const err = document.getElementById('err');
+
+  window.lock.station().then((s) => {
+    document.getElementById('station').innerHTML = 'Station · <b>' + (s || '—') + '</b>';
+  });
+
+  // Numeric keypad (touch-friendly); typing and scanning also work.
+  const keys = ['1','2','3','4','5','6','7','8','9','⌫','0','↵'];
+  const pad = document.getElementById('pad');
+  keys.forEach((k) => {
+    const b = document.createElement('button');
+    b.textContent = k;
+    if (k === '↵') b.className = 'enter';
+    b.onclick = () => {
+      if (k === '⌫') pin.value = pin.value.slice(0, -1);
+      else if (k === '↵') submit();
+      else pin.value += k;
+      pin.focus();
+    };
+    pad.appendChild(b);
+  });
+
+  let busy = false;
+  async function submit() {
+    const value = pin.value.trim();
+    if (!value || busy) return;
+    busy = true; err.textContent = '';
+    const res = await window.lock.submit(value);
+    busy = false;
+    if (res && res.ok) return; // main process reveals the warehouse + closes this window
+    pin.value = '';
+    err.textContent = (res && res.error) || 'Not recognised';
+    pin.focus();
+  }
+
+  // A keyboard-wedge scanner types the token then presses Enter — same path.
+  pin.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+</script>
+</body>
+</html>

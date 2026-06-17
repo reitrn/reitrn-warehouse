@@ -21,11 +21,17 @@ const stationName = () => store.get('stationName') || machineName;
 const PORTAL_URL = (process.env.REITRN_PORTAL_URL || 'https://portal.reitrn.com').replace(/\/$/, '');
 const WAREHOUSE_URL = process.env.REITRN_WAREHOUSE_URL || `${PORTAL_URL}/warehouse/process`;
 const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for printing
+// Which merchant this station belongs to (until account login in-app resolves it).
+const MERCHANT_SLUG = process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || 'reitrntest';
 
 let mainWindow = null;
 let settingsWindow = null;
+let lockWindow = null;
 let tray = null;
 let localServer = null;
+let activeUser = null;     // { id, name, role } — the PIN'd user at this station
+let mainReady = false;     // warehouse window finished loading
+let gatePassed = false;    // PIN gate satisfied (or not required)
 let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({ ...j, time: j.time ? new Date(j.time) : new Date() }));
 
 app.setName('reitrn Warehouse');
@@ -38,8 +44,24 @@ app.on('ready', () => {
   createTray();
   createWindow();
   startLocalServer();
+  enforceGate();
   app.setLoginItemSettings({ openAtLogin: store.get('autoStart', true), name: 'reitrn Warehouse' });
 });
+
+// Show the PIN lock if this merchant has warehouse users configured; otherwise
+// go straight in (never bricked before anyone is added). The warehouse window
+// only reveals once the gate is satisfied.
+async function enforceGate() {
+  try {
+    const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-status?merchant=${encodeURIComponent(MERCHANT_SLUG)}`);
+    const data = await res.json().catch(() => ({}));
+    if (data && data.configured) { showLock(); return; }
+  } catch { /* offline / not reachable → don't lock the station out */ }
+  gatePassed = true;
+  maybeShowMain();
+}
+
+function maybeShowMain() { if (mainReady && gatePassed && mainWindow) mainWindow.show(); }
 
 app.on('window-all-closed', () => { /* keep running in tray (print server + station) */ });
 app.on('before-quit', () => { app.isQuitting = true; if (localServer) localServer.close(); });
@@ -74,7 +96,7 @@ function createWindow() {
   });
   mainWindow.maximize();
   mainWindow.loadURL(WAREHOUSE_URL);
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => { mainReady = true; maybeShowMain(); });
 
   // Keep navigation inside the portal; open anything external in the OS browser.
   const sameSite = (url) => { try { return new URL(url).origin === new URL(PORTAL_URL).origin; } catch { return false; } };
@@ -94,6 +116,7 @@ function buildAppMenu() {
       { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => mainWindow && mainWindow.reload() },
       { label: 'Toggle full screen', accelerator: 'F11', click: () => mainWindow && mainWindow.setFullScreen(!mainWindow.isFullScreen()) },
       { type: 'separator' },
+      { label: 'Lock / switch user', accelerator: 'CmdOrCtrl+L', click: lockStation },
       { label: 'Printer settings…', click: openSettings },
       { type: 'separator' },
       { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => { app.isQuitting = true; app.quit(); } },
@@ -115,17 +138,47 @@ function openSettings() {
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
+// ── PIN lock (app-only) ──────────────────────────────────────────────────────
+// Shows the scan-or-type PIN screen and hides the warehouse until a staff member
+// signs in. "Lock / switch user" returns here without quitting.
+function showLock() {
+  if (mainWindow) mainWindow.hide();
+  if (lockWindow) { lockWindow.show(); lockWindow.focus(); return; }
+  lockWindow = new BrowserWindow({
+    width: 480, height: 640, resizable: false, title: 'Sign in — reitrn Warehouse',
+    backgroundColor: '#F7F7F9', icon: path.join(__dirname, 'assets', 'icon.ico'),
+    autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'lock-preload.js'), contextIsolation: true, nodeIntegration: false },
+  });
+  lockWindow.loadFile('lock/index.html');
+  lockWindow.on('closed', () => { lockWindow = null; });
+}
+
+function lockStation() {
+  gatePassed = false;
+  activeUser = null;
+  if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
+  showLock();
+}
+
 // ── Tray ─────────────────────────────────────────────────────────────────────
 function createTray() {
   tray = new Tray(path.join(__dirname, 'assets', 'tray.ico'));
   tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open warehouse', click: () => { if (mainWindow) mainWindow.show(); } },
+    { label: 'Open warehouse', click: openStation },
+    { label: 'Lock / switch user', click: lockStation },
     { label: 'Printer settings…', click: openSettings },
     { type: 'separator' },
     { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } },
   ]));
-  tray.on('click', () => { if (mainWindow) (mainWindow.isVisible() ? mainWindow.focus() : mainWindow.show()); });
+  tray.on('click', openStation);
+}
+
+// Bring the station forward — but respect the PIN gate (show the lock if not in).
+function openStation() {
+  if (!gatePassed) { showLock(); return; }
+  if (mainWindow) (mainWindow.isVisible() ? mainWindow.focus() : mainWindow.show());
 }
 
 // ── Local print server (localhost:3010) — same /ping + /print contract the
@@ -142,7 +195,7 @@ function handleRequest(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   if (req.method === 'GET' && req.url === '/ping') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, app: 'reitrn-warehouse', station: stationName() })); return; }
-  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName })); return; }
+  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser })); return; }
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
     req.on('data', (c) => { body += c; });
@@ -179,6 +232,33 @@ ipcMain.handle('setSetting', async (e, key, value) => {
   if (key === 'stationName' && tray) tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
 });
 ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide(); });
+
+// PIN login from the lock screen. A 4–8 digit value is a typed PIN; anything else
+// (a scanned ID-card barcode) is sent as a token. Validated server-side.
+ipcMain.handle('getStationName', () => stationName());
+ipcMain.handle('pinLogin', async (e, value) => {
+  const v = String(value || '').trim();
+  if (!v) return { error: 'Enter your PIN' };
+  const isPin = /^\d{4,8}$/.test(v);
+  try {
+    const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ merchantSlug: MERCHANT_SLUG, ...(isPin ? { pin: v } : { token: v }) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.user) {
+      activeUser = data.user;
+      gatePassed = true;
+      if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()} · ${activeUser.name}`);
+      maybeShowMain();
+      if (lockWindow) lockWindow.close();
+      return { ok: true };
+    }
+    return { error: data.error || 'Not recognised' };
+  } catch {
+    return { error: 'Could not reach the portal — check the connection.' };
+  }
+});
 
 function addRecentJob(job) {
   recentJobs.unshift(job);

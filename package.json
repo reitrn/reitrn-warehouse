@@ -37,6 +37,8 @@
       "printer.js",
       "settings-preload.js",
       "settings/**/*",
+      "lock-preload.js",
+      "lock/**/*",
       "assets/**/*",
       "node_modules/**/*"
     ]
