@@ -96,7 +96,7 @@ function createWindow() {
     title: 'reitrn Warehouse',
     backgroundColor: '#F7F7F9',
     icon: path.join(__dirname, 'assets', 'icon.ico'),
-    autoHideMenuBar: true,
+    autoHideMenuBar: false, // keep the menu bar visible so Lock / switch user + Quit are findable
     webPreferences: { contextIsolation: true, nodeIntegration: false },
     show: false,
   });
@@ -276,7 +276,10 @@ ipcMain.handle('pinLogin', async (e, value) => {
       gatePassed = true;
       armIdle(); // start the inactivity countdown for this session
       if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()} · ${activeUser.name}`);
-      maybeShowMain();
+      // Show the warehouse window reliably (don't depend on the ready-to-show
+      // race), then close the lock — otherwise we can end up with no window.
+      mainReady = true;
+      if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
       if (lockWindow) lockWindow.close();
       return { ok: true };
     }
