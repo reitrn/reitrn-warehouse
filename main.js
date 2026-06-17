@@ -95,6 +95,9 @@ function createWindow() {
     show: false,
   });
   mainWindow.maximize();
+  // Announce we're the desktop app so the portal login hides "Create account"
+  // (accounts are made on the web; the app only signs in).
+  mainWindow.webContents.setUserAgent(`${mainWindow.webContents.getUserAgent()} reitrnWarehouse/${app.getVersion()}`);
   mainWindow.loadURL(WAREHOUSE_URL);
   mainWindow.once('ready-to-show', () => { mainReady = true; maybeShowMain(); });
 
