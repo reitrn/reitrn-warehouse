@@ -23,6 +23,9 @@ const WAREHOUSE_URL = process.env.REITRN_WAREHOUSE_URL || `${PORTAL_URL}/warehou
 const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for printing
 // Which merchant this station belongs to (until account login in-app resolves it).
 const MERCHANT_SLUG = process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || 'reitrntest';
+// Auto-lock the station after this much inactivity (no clicks / keys / scans),
+// so an unattended station drops back to the PIN screen. Default 15 min.
+const IDLE_LOCK_MS = Number(process.env.REITRN_IDLE_LOCK_MS) || store.get('idleLockMs') || 15 * 60 * 1000;
 
 let mainWindow = null;
 let settingsWindow = null;
@@ -30,6 +33,7 @@ let lockWindow = null;
 let tray = null;
 let localServer = null;
 let activeUser = null;     // { id, name, role } — the PIN'd user at this station
+let idleTimer = null;      // auto-lock countdown (armed only while signed in)
 let mainReady = false;     // warehouse window finished loading
 let gatePassed = false;    // PIN gate satisfied (or not required)
 let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({ ...j, time: j.time ? new Date(j.time) : new Date() }));
@@ -109,6 +113,12 @@ function createWindow() {
   });
   mainWindow.webContents.on('will-navigate', (e, url) => { if (!sameSite(url)) { e.preventDefault(); shell.openExternal(url); } });
 
+  // Inactivity auto-lock: reset the countdown on real interaction only
+  // (clicks, keys, scans) — not idle mouse drift.
+  mainWindow.webContents.on('input-event', (_e, input) => {
+    if (input.type === 'keyDown' || input.type === 'char' || input.type === 'mouseDown') armIdle();
+  });
+
   mainWindow.on('close', (e) => { if (!app.isQuitting) { e.preventDefault(); mainWindow.hide(); } });
   buildAppMenu();
 }
@@ -160,8 +170,17 @@ function showLock() {
 function lockStation() {
   gatePassed = false;
   activeUser = null;
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
   showLock();
+}
+
+// (Re)start the inactivity countdown. Only armed while a user is signed in;
+// each real interaction (click/key/scan) calls this to reset it.
+function armIdle() {
+  if (idleTimer) clearTimeout(idleTimer);
+  if (!gatePassed) return;
+  idleTimer = setTimeout(() => { if (gatePassed) lockStation(); }, IDLE_LOCK_MS);
 }
 
 // ── Tray ─────────────────────────────────────────────────────────────────────
@@ -252,6 +271,7 @@ ipcMain.handle('pinLogin', async (e, value) => {
     if (res.ok && data.user) {
       activeUser = data.user;
       gatePassed = true;
+      armIdle(); // start the inactivity countdown for this session
       if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()} · ${activeUser.name}`);
       maybeShowMain();
       if (lockWindow) lockWindow.close();
