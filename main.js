@@ -107,7 +107,7 @@ function createWindow() {
     backgroundColor: '#F7F7F9',
     icon: path.join(__dirname, 'assets', 'icon.ico'),
     autoHideMenuBar: false, // keep the menu bar visible so Lock / switch user + Quit are findable
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, 'app-preload.js'), contextIsolation: true, nodeIntegration: false },
     show: false,
   });
   mainWindow.maximize();
@@ -275,6 +275,7 @@ ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide
 // PIN login from the lock screen. A 4–8 digit value is a typed PIN; anything else
 // (a scanned ID-card barcode) is sent as a token. Validated server-side.
 ipcMain.handle('getStationName', () => stationName());
+ipcMain.handle('lockStation', () => { lockStation(); });
 ipcMain.handle('pinLogin', async (e, value) => {
   const v = String(value || '').trim();
   if (!v) return { error: 'Enter your PIN' };

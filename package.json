@@ -35,6 +35,7 @@
     "files": [
       "main.js",
       "printer.js",
+      "app-preload.js",
       "settings-preload.js",
       "settings/**/*",
       "lock-preload.js",
