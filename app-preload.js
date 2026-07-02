@@ -7,4 +7,8 @@ contextBridge.exposeInMainWorld('reitrnApp', {
   minimize: () => ipcRenderer.invoke('win:minimize'),
   maximize: () => ipcRenderer.invoke('win:maximize'),
   close: () => ipcRenderer.invoke('win:close'),
+  // Station identity (configured name, falling back to the machine hostname) —
+  // the console binds inspections to a station from this automatically; the
+  // in-page station picker is only a browser fallback.
+  stationName: () => ipcRenderer.invoke('getStationName'),
 });
