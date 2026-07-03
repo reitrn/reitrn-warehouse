@@ -284,6 +284,15 @@
           onchange="saveStation(this.value)" />
         <div id="stationHint" style="font-size:11px;color:var(--muted);margin-top:4px;"></div>
       </div>
+      <div style="margin-bottom:6px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
+          Portal account (slug)
+        </div>
+        <input id="slugInput" type="text" placeholder="e.g. hails"
+          style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border,#ECECF1);border-radius:8px;font-size:13px;"
+          onchange="saveSlug(this.value)" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">The warehouse account staff PINs belong to — e.g. <b>hails</b> for the Enterprise hub.</div>
+      </div>
       <div>
         <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
           Auto-lock after (minutes)
@@ -360,12 +369,17 @@
       input.value = state.stationName || '';
       document.getElementById('stationHint').textContent = 'Computer name: ' + (state.machineName || '—') + ' · leave blank to use it';
       document.getElementById('idleInput').value = state.idleLockMin || 15;
+      document.getElementById('slugInput').value = state.merchantSlug || '';
     });
 
     window.reitrn.onJobsUpdate((jobs) => renderJobs(jobs));
 
     function saveStation(value) {
       window.reitrn.setSetting('stationName', (value || '').trim());
+    }
+
+    function saveSlug(value) {
+      window.reitrn.setSetting('merchantSlug', (value || '').trim().toLowerCase());
     }
 
     function saveIdle(value) {

@@ -14,15 +14,18 @@ const store = new Store();
 const machineName = os.hostname();
 const stationName = () => store.get('stationName') || machineName;
 
-// Which warehouse this station loads. One app, pointed by config:
-//   • Lite → https://portal.reitrn.com  (default, loads /warehouse/process)
-//   • Hub  → https://app.reitrn.com     (later; set REITRN_WAREHOUSE_URL to the full URL)
-// Dev: REITRN_WAREHOUSE_URL=http://localhost:3002/warehouse/process npm start
+// Which warehouse this station loads. ONE app for every plan: it lands on the
+// portal root and the PORTAL routes by the signed-in account's plan —
+// Enterprise–3PL stations → the console Inspect bench, brand plans → the
+// workbench (founder, 2026-07-03: the app reflects the enterprise hub).
+// Dev: REITRN_PORTAL_URL=http://localhost:3002 npm start
 const PORTAL_URL = (process.env.REITRN_PORTAL_URL || 'https://portal.reitrn.com').replace(/\/$/, '');
-const WAREHOUSE_URL = process.env.REITRN_WAREHOUSE_URL || `${PORTAL_URL}/warehouse/process`;
+const WAREHOUSE_URL = process.env.REITRN_WAREHOUSE_URL || `${PORTAL_URL}/`;
 const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for printing
-// Which merchant this station belongs to (until account login in-app resolves it).
-const MERCHANT_SLUG = process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || 'reitrntest';
+// Which merchant account this station belongs to — drives the staff PIN login
+// (e.g. 'hails' for the Enterprise–3PL warehouse). Editable in Station
+// settings; read live so a change applies without a restart.
+const merchantSlug = () => process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || 'reitrntest';
 // Auto-lock the station after this much inactivity (no clicks / keys / scans),
 // so an unattended station drops back to the PIN screen. Env wins (for testing),
 // else the saved Station setting, else 15 min. Read live so changes apply at once.
@@ -103,7 +106,7 @@ app.on('ready', () => {
 // Does this merchant use PIN login? (No users → never gate.)
 async function fetchPinConfigured() {
   try {
-    const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-status?merchant=${encodeURIComponent(MERCHANT_SLUG)}`);
+    const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-status?merchant=${encodeURIComponent(merchantSlug())}`);
     const data = await res.json().catch(() => ({}));
     pinConfigured = !!(data && data.configured);
   } catch { pinConfigured = false; }
@@ -310,7 +313,7 @@ function handleRequest(req, res) {
 }
 
 // ── IPC for the printer-settings window ─────────────────────────────────────
-ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName, idleLockMin: Math.round(idleLockMs() / 60000) }));
+ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName, idleLockMin: Math.round(idleLockMs() / 60000), merchantSlug: merchantSlug() }));
 ipcMain.handle('refreshPrinters', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', '') }));
 ipcMain.handle('testPrint', async (e, printerName) => {
   try { await printRaw(printerName, generateTestLabel()); addRecentJob({ id: `test_${Date.now()}`, printer: printerName, status: 'done', time: new Date() }); return true; }
@@ -321,6 +324,7 @@ ipcMain.handle('setSetting', async (e, key, value) => {
   if (key === 'autoStart') app.setLoginItemSettings({ openAtLogin: value, name: 'reitrn Warehouse' });
   if (key === 'stationName' && tray) tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
   if (key === 'idleLockMs') armIdle(); // apply the new timeout immediately
+  if (key === 'merchantSlug') fetchPinConfigured(); // re-check the PIN gate for the new account
 });
 ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide(); });
 
@@ -339,7 +343,7 @@ ipcMain.handle('pinLogin', async (e, value) => {
   try {
     const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ merchantSlug: MERCHANT_SLUG, ...(isPin ? { pin: v } : { token: v }) }),
+      body: JSON.stringify({ merchantSlug: merchantSlug(), ...(isPin ? { pin: v } : { token: v }) }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.user) {
