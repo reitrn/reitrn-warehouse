@@ -43,9 +43,12 @@ async function resolveSlugFromSession() {
       `fetch('/api/warehouse/station-context').then(r => r.ok ? r.json() : null).catch(() => null)`,
       true,
     );
-    if (data && data.slug && data.slug !== autoSlug) {
+    if (data && data.slug) {
       autoSlug = data.slug;
-      fetchPinConfigured(); // the gate re-checks against the real account
+      // Same authed call answers whether this account gates with PINs — the
+      // separate pin-status round-trip 401'd from the main process (no
+      // cookies) and silently disabled the gate.
+      pinConfigured = !!data.pinConfigured;
     }
   } catch { /* signed out or offline — keep whatever we had */ }
 }
@@ -128,13 +131,19 @@ app.on('ready', () => {
   setInterval(() => applyWeekIcons(false), 6 * 60 * 60 * 1000);
 });
 
-// Does this merchant use PIN login? (No users → never gate.)
+// Does this merchant use PIN login? (No users → never gate.) Runs INSIDE the
+// signed-in window — pin-status is authed and main-process fetches carry no
+// cookies (the silent 401 that kept the gate off; founder bug, 2026-07-03).
+// Only needed when the Station setting overrides the slug manually; the
+// normal path gets pinConfigured from station-context in one call.
 async function fetchPinConfigured(silent) {
   try {
-    const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-status?merchant=${encodeURIComponent(merchantSlug())}`);
-    const data = await res.json().catch(() => ({}));
-    pinConfigured = !!(data && data.configured);
-  } catch { pinConfigured = false; }
+    const data = await mainWindow.webContents.executeJavaScript(
+      `fetch('/api/warehouse/pin-status?merchant=${encodeURIComponent(merchantSlug())}').then(r => r.ok ? r.json() : null).catch(() => null)`,
+      true,
+    );
+    if (data) pinConfigured = !!data.configured;
+  } catch { /* keep the last known state */ }
   if (!silent && mainWindow) evaluateGate(mainWindow.webContents.getURL());
 }
 
@@ -197,8 +206,7 @@ function createWindow() {
   // then whether that account gates with PINs, THEN decide lock-vs-show. The
   // window stays hidden until this completes — no flash of the bench.
   mainWindow.once('ready-to-show', async () => {
-    await resolveSlugFromSession();
-    await fetchPinConfigured(true);
+    await resolveSlugFromSession(); // sets autoSlug AND pinConfigured in one authed call
     evaluateGate(mainWindow.webContents.getURL());
   });
   mainWindow.webContents.on('did-navigate', (_e, url) => { evaluateGate(url); resolveSlugFromSession(); });
@@ -331,7 +339,7 @@ function handleRequest(req, res) {
     openStation();
     return;
   }
-  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser })); return; }
+  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, lockShowing: !!lockWindow } })); return; }
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
     req.on('data', (c) => { body += c; });
