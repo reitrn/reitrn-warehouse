@@ -32,7 +32,9 @@ let autoSlug = null;
 const merchantSlug = () => process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || autoSlug || 'reitrntest';
 async function resolveSlugFromSession() {
   try {
-    const res = await session.defaultSession.fetch(`${PORTAL_URL}/api/warehouse/station-context`);
+    // credentials 'include' is REQUIRED — ses.fetch sends no cookies without
+    // it, the portal answers 401 and the PIN gate silently never engages.
+    const res = await session.defaultSession.fetch(`${PORTAL_URL}/api/warehouse/station-context`, { credentials: 'include' });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.slug && data.slug !== autoSlug) {
       autoSlug = data.slug;
