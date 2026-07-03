@@ -20,4 +20,7 @@ contextBridge.exposeInMainWorld('reitrnApp', {
   gateState: () => ipcRenderer.invoke('getGateState'),
   onGateState: (cb) => ipcRenderer.on('gateState', (_e, state) => cb(state)),
   pinLogin: (value) => ipcRenderer.invoke('pinLogin', value),
+  // No-flash handshake: the page calls this once its lock overlay is mounted
+  // and covering — only then does the shell make the window visible.
+  lockUiReady: () => ipcRenderer.invoke('lockUiReady'),
 });

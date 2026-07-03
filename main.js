@@ -152,16 +152,23 @@ async function fetchPinConfigured(silent) {
 // The PIN is SECONDARY to the account: it only appears once the station is signed
 // in (the window is on an authenticated page, not /login). So the order is always
 // email login first → then PIN. On the login page we just show the window.
-// NOTHING shows until the boot resolution (account + PIN policy) completes —
-// the first thing a worker ever sees is the lock or the login, never a flash
-// of the bench (founder, 2026-07-03).
+// NOTHING shows until BOTH are true: the boot resolution (account + PIN
+// policy) completed AND the page's in-page lock overlay reported it is
+// mounted and covering (lockUiReady). The shell finishing first means nothing
+// if React inside hasn't painted the lock yet — that gap was exactly the
+// founder's flash (2026-07-03). A worker's first pixel is the lock or the
+// login. A fallback timer force-shows after 8s so a broken page can never
+// leave the station windowless.
 let bootResolved = false;
+let pageReady = false;   // the page's lock overlay is mounted & covering
+let showForced = false;  // fallback fired — show whatever we have
 function evaluateGate(url) {
   if (!bootResolved) return;
   let p = '';
   try { p = new URL(url).pathname } catch { /* about:blank etc. */ }
   const onLogin = p.startsWith('/login') || p.startsWith('/auth') || p === '' || p === '/'
-  if (onLogin) { if (mainWindow) mainWindow.show(); return; }      // account login phase
+  if (onLogin) { if (mainWindow) mainWindow.show(); return; }      // account login phase (no bench to leak)
+  if (!pageReady && !showForced) return;                           // wait for the page's lock to be up
   if (pinConfigured && !gatePassed) { showLock(); return; }        // signed in → require PIN
   if (mainWindow) mainWindow.show();                               // signed in + PIN done (or none)
 }
@@ -215,8 +222,16 @@ function createWindow() {
   mainWindow.once('ready-to-show', async () => {
     await resolveSlugFromSession(); // sets autoSlug AND pinConfigured in one authed call
     bootResolved = true;            // gate decisions may show windows from here on
+    pushGateState();                // the in-page cover locks (or lifts) only on a post-boot state
     evaluateGate(mainWindow.webContents.getURL());
-    pushGateState();                // the in-page cover lifts (or locks) only on a post-boot state
+    // Fallback: if the page never signals lockUiReady (old build, error page,
+    // dead wifi), show anyway after 8s — a station must never be windowless.
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+        showForced = true;
+        evaluateGate(mainWindow.webContents.getURL());
+      }
+    }, 8000);
   });
   mainWindow.webContents.on('did-navigate', (_e, url) => { evaluateGate(url); resolveSlugFromSession(); });
   mainWindow.webContents.on('did-navigate-in-page', (_e, url) => evaluateGate(url));
@@ -399,6 +414,13 @@ ipcMain.handle('getStationName', () => stationName());
 ipcMain.handle('getActiveUser', () => activeUser);
 // The in-page lock overlay pulls this on mount, then listens for pushes.
 ipcMain.handle('getGateState', () => gateStatePayload());
+// The page's lock overlay is mounted and covering — the window may show now
+// (the other half of the no-flash handshake).
+ipcMain.handle('lockUiReady', () => {
+  pageReady = true;
+  pushGateState();
+  if (mainWindow) evaluateGate(mainWindow.webContents.getURL());
+});
 ipcMain.handle('lockStation', () => { lockStation(); });
 // Window controls for the portal's custom (frameless) top bar.
 ipcMain.handle('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
