@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, session, shell, nativeImage } = require('electron');
 const path = require('path');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const os = require('os');
 const Store = require('electron-store');
 const { getInstalledPrinters, printRaw, generateTestLabel } = require('./printer');
@@ -78,6 +80,7 @@ let gatePassed = false;    // PIN gate satisfied this session
 let pinConfigured = !!gateCache.pinConfigured; // cached from last run; live-corrected on boot
 let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({ ...j, time: j.time ? new Date(j.time) : new Date() }));
 let pageConsoleLog = [];   // last ~200 page console entries — served on /console-log
+let videoOutboxTimer = null; // store-and-forward upload worker (video-outbox/)
 
 app.setName('reitrn Warehouse');
 // Windows: group + icon the taskbar entry under our identity, not Electron's.
@@ -388,12 +391,83 @@ function openStation() {
   if (mainWindow) (mainWindow.isVisible() ? mainWindow.focus() : mainWindow.show());
 }
 
+// ── Video outbox upload worker (store-and-forward, the video-agent pattern) ──
+// Every 30s: for each {file}.webm + {file}.json pair, ask the portal for a
+// fresh presigned URL (the signed token in the sidecar is the auth — main
+// carries no cookies), stream the file to R2, mark the inspection uploaded,
+// delete the pair. Any failure leaves the pair for the next tick — a station
+// can sit in a dead zone over a weekend and lose nothing.
+let videoDraining = false;
+async function drainVideoOutbox() {
+  if (videoDraining) return;
+  videoDraining = true;
+  try {
+    const dir = path.join(app.getPath('userData'), 'video-outbox');
+    if (!fs.existsSync(dir)) return;
+    const sidecars = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    for (const sc of sidecars) {
+      const sidecarPath = path.join(dir, sc);
+      const filePath = sidecarPath.replace(/\.json$/, '');
+      try {
+        if (!fs.existsSync(filePath)) { fs.unlinkSync(sidecarPath); continue; } // orphan sidecar
+        const meta = JSON.parse(fs.readFileSync(sidecarPath, 'utf8'));
+        // 1) Fresh presigned URL (they expire — never stored).
+        const signRes = await fetch(`${meta.origin}/api/video-outbox`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: meta.token, action: 'sign' }),
+        });
+        if (signRes.status === 401) { fs.unlinkSync(sidecarPath); fs.unlinkSync(filePath); continue; } // token expired (7d) — dead entry
+        if (!signRes.ok) continue; // 503 unconfigured / transient — retry next tick
+        const { url } = await signRes.json().catch(() => ({}));
+        if (!url) continue;
+        // 2) Stream the file to R2 (native https — clean stream upload).
+        const ok = await new Promise((resolve) => {
+          try {
+            const u = new URL(url);
+            const put = https.request({
+              hostname: u.hostname, path: u.pathname + u.search, method: 'PUT',
+              headers: { 'Content-Type': meta.contentType || 'video/webm', 'Content-Length': fs.statSync(filePath).size },
+            }, (r) => { r.resume(); resolve(r.statusCode >= 200 && r.statusCode < 300); });
+            put.on('error', () => resolve(false));
+            fs.createReadStream(filePath).pipe(put);
+          } catch { resolve(false); }
+        });
+        if (!ok) continue;
+        // 3) Mark uploaded, THEN delete — a failed mark keeps the pair (re-PUT
+        // of the same key is idempotent).
+        const markRes = await fetch(`${meta.origin}/api/video-outbox`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: meta.token, action: 'uploaded' }),
+        });
+        if (!markRes.ok) continue;
+        fs.unlinkSync(filePath);
+        fs.unlinkSync(sidecarPath);
+        console.log(`[VideoOutbox] uploaded ${meta.key}`);
+      } catch (err) {
+        console.error('[VideoOutbox] entry failed:', err.message);
+      }
+    }
+  } finally {
+    videoDraining = false;
+  }
+}
+function videoOutboxCount() {
+  try {
+    const dir = path.join(app.getPath('userData'), 'video-outbox');
+    return fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')).length : 0;
+  } catch { return 0; }
+}
+
 // ── Local print server (localhost:3010) — same /ping + /print contract the
 // warehouse UI already uses, so printing works with no separate agent. ────────
 function startLocalServer() {
   localServer = http.createServer(handleRequest);
   localServer.listen(LOCAL_PORT, '127.0.0.1', () => console.log(`[PrintServer] http://localhost:${LOCAL_PORT}`));
   localServer.on('error', (err) => console.error('[PrintServer] failed:', err.message));
+  // Video outbox worker: drain on boot (files left from a previous run) and
+  // every 30s — the retry half of the store-and-forward pattern.
+  drainVideoOutbox();
+  videoOutboxTimer = setInterval(drainVideoOutbox, 30_000);
 }
 
 function handleRequest(req, res) {
@@ -412,7 +486,7 @@ function handleRequest(req, res) {
     openStation();
     return;
   }
-  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, bootResolved, pageReady, windowVisible: !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) } })); return; }
+  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, videoOutbox: videoOutboxCount(), gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, bootResolved, pageReady, windowVisible: !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) } })); return; }
   // The page's own console (errors and all) — the only debugging window into a
   // remote production page on a station. ?url=1 adds the page's current URL.
   if (req.method === 'GET' && req.url.startsWith('/console-log')) {
@@ -437,6 +511,53 @@ function handleRequest(req, res) {
         res.end(JSON.stringify({ ok: false, error: err.message }));
       }
     });
+    return;
+  }
+  // Store-and-forward video handoff (the README's unified-video-upload item,
+  // the video-agent pattern): the bench POSTs the recorded webm here; it
+  // streams to disk with a .json sidecar (signed portal token + key + origin)
+  // and the upload worker owns retries — uploads survive page closes/crashes.
+  if (req.method === 'POST' && req.url.startsWith('/video-outbox')) {
+    try {
+      const q = new URL(req.url, 'http://localhost').searchParams;
+      const token = q.get('token');
+      const key = q.get('key');
+      const origin = q.get('origin');
+      if (!token || !key || !origin) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'token/key/origin required' }));
+        return;
+      }
+      const dir = path.join(app.getPath('userData'), 'video-outbox');
+      fs.mkdirSync(dir, { recursive: true });
+      const base = key.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = path.join(dir, `${base}.webm`);
+      const out = fs.createWriteStream(`${filePath}.part`);
+      req.pipe(out);
+      out.on('finish', () => {
+        try {
+          fs.renameSync(`${filePath}.part`, filePath);
+          fs.writeFileSync(`${filePath}.json`, JSON.stringify({
+            token, key, origin,
+            contentType: req.headers['content-type'] || 'video/webm',
+            receivedAt: new Date().toISOString(),
+          }));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+          drainVideoOutbox(); // try immediately; the worker retries otherwise
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+      out.on('error', (err) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      });
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
     return;
   }
   // Drive the station page to a portal path (localhost-only server — same
