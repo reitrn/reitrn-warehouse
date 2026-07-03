@@ -29,4 +29,8 @@ contextBridge.exposeInMainWorld('reitrnApp', {
   setSetting: (key, value) => ipcRenderer.invoke('setSetting', key, value),
   refreshPrinters: () => ipcRenderer.invoke('refreshPrinters'),
   testPrint: (printer) => ipcRenderer.invoke('testPrint', printer),
+  // Tray/menu "Station settings" opens the in-app panel; the print log
+  // streams live into it.
+  onOpenSettings: (cb) => ipcRenderer.on('openStationSettings', () => cb()),
+  onJobsUpdate: (cb) => ipcRenderer.on('jobsUpdate', (_e, jobs) => cb(jobs)),
 });

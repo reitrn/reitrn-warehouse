@@ -319,21 +319,12 @@ function buildAppMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-// ── Printer settings window (carried over from the print agent) ──────────────
+// ── Station settings — IN-APP (founder, 2026-07-03: the separate settings
+// window is retired; the tray/menu open the portal's own slide-over panel
+// via the bridge event). settings/ + settings-preload.js are unused.
 function openSettings() {
-  if (settingsWindow) { settingsWindow.show(); settingsWindow.focus(); return; }
-  settingsWindow = new BrowserWindow({
-    width: 380, height: 600, resizable: false, title: 'Station settings',
-    backgroundColor: '#FFFFFF', icon: path.join(__dirname, 'assets', 'icon.ico'),
-    autoHideMenuBar: true,
-    // NO parent: a child of a hidden main window opens invisibly (founder hit
-    // this from the tray with the app closed) — settings stands alone.
-    webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, nodeIntegration: false },
-  });
-  settingsWindow.loadFile('settings/index.html');
-  settingsWindow.once('ready-to-show', () => { if (settingsWindow) { settingsWindow.show(); settingsWindow.focus(); settingsWindow.moveTop(); } });
-  applyWeekIcons(true); // recolour the new window's icon — it's created after the boot pass
-  settingsWindow.on('closed', () => { settingsWindow = null; });
+  openStation(); // shows the lock if nobody's signed in — settings live behind it
+  if (mainWindow) mainWindow.webContents.send('openStationSettings');
 }
 
 // ── PIN lock — IN-PAGE, one window always ─────────────────────────────────────
@@ -511,5 +502,6 @@ function addRecentJob(job) {
   recentJobs.unshift(job);
   if (recentJobs.length > 50) recentJobs.pop();
   store.set('recentJobs', recentJobs);
-  if (settingsWindow && settingsWindow.webContents) settingsWindow.webContents.send('jobsUpdate', recentJobs.slice(0, 20));
+  // The in-app Station settings panel shows the live print log.
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jobsUpdate', recentJobs.slice(0, 20));
 }
