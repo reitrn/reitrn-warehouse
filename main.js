@@ -28,8 +28,13 @@ const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for pri
 // checks the RIGHT account with zero setup (founder bug, 2026-07-03: PINs
 // "not recognised" because the station still pointed at the default brand).
 // Env var and the Station setting remain as explicit overrides.
-let autoSlug = null;
-let autoPlan = null; // the signed-in account's plan — drives printer slots (enterprise = label + 4x6)
+// Last run's resolved gate facts, persisted — the app decides lock-vs-not
+// INSTANTLY on the next boot instead of waiting a server round-trip
+// (founder, 2026-07-03: "why can't the pin just instantly load"). The live
+// resolution still runs and corrects the cache if the account changed.
+const gateCache = store.get('gateCache') || {};
+let autoSlug = gateCache.slug || null;
+let autoPlan = gateCache.plan || null; // drives printer slots (enterprise = label + 4x6)
 const merchantSlug = () => process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || autoSlug || 'reitrntest';
 async function resolveSlugFromSession() {
   try {
@@ -51,6 +56,9 @@ async function resolveSlugFromSession() {
       // separate pin-status round-trip 401'd from the main process (no
       // cookies) and silently disabled the gate.
       pinConfigured = !!data.pinConfigured;
+      // Persist for INSTANT gate decisions on the next boot.
+      store.set('gateCache', { slug: autoSlug, plan: autoPlan, pinConfigured });
+      pushGateState();
     }
   } catch { /* signed out or offline — keep whatever we had */ }
 }
@@ -68,7 +76,7 @@ let localServer = null;
 let activeUser = null;     // { id, name, role } — the PIN'd user at this station
 let idleTimer = null;      // auto-lock countdown (armed only while signed in)
 let gatePassed = false;    // PIN gate satisfied this session
-let pinConfigured = false; // merchant has warehouse PIN users
+let pinConfigured = !!gateCache.pinConfigured; // cached from last run; live-corrected on boot
 let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({ ...j, time: j.time ? new Date(j.time) : new Date() }));
 
 app.setName('reitrn Warehouse');
@@ -120,6 +128,7 @@ app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()
 
 app.on('ready', () => {
   grantMediaPermissions();
+  createSplash();     // instant local brand splash — no blank seconds while the portal loads
   createTray();
   createWindow();
   startLocalServer();
@@ -166,11 +175,19 @@ function evaluateGate(url) {
   if (!bootResolved) return;
   let p = '';
   try { p = new URL(url).pathname } catch { /* about:blank etc. */ }
-  const onLogin = p.startsWith('/login') || p.startsWith('/auth') || p === '' || p === '/'
-  if (onLogin) { if (mainWindow) mainWindow.show(); return; }      // account login phase (no bench to leak)
+  // NOTE: '/' is NOT a login path — signed in, the root REDIRECTS to the
+  // bench, and showing during that redirect was the last bench flash
+  // (founder, 2026-07-03). '' = about:blank/initial: decide nothing yet.
+  if (p === '' || p === '/') return;
+  const onLogin = p.startsWith('/login') || p.startsWith('/auth')
+  if (onLogin) { showMain(); return; }                             // account login phase (no bench to leak)
   if (!pageReady && !showForced) return;                           // wait for the page's lock to be up
   if (pinConfigured && !gatePassed) { showLock(); return; }        // signed in → require PIN
-  if (mainWindow) mainWindow.show();                               // signed in + PIN done (or none)
+  showMain();                                                      // signed in + PIN done (or none)
+}
+function showMain() {
+  closeSplash();
+  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
 }
 
 app.on('window-all-closed', () => { /* keep running in tray (print server + station) */ });
@@ -194,6 +211,23 @@ function grantMediaPermissions() {
     }
     return false;
   });
+}
+
+// ── Splash — a tiny LOCAL window shown instantly at launch (no network),
+// closed the moment the real window (lock or login) is ready. The cold start
+// is wordmark → lock, never a blank pause (founder, 2026-07-03). ────────────
+let splashWindow = null;
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 420, height: 240, frame: false, resizable: false, center: true,
+    backgroundColor: '#FFFFFF', skipTaskbar: true, alwaysOnTop: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  splashWindow.loadFile('splash/index.html');
+  splashWindow.on('closed', () => { splashWindow = null; });
+}
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
 }
 
 // ── Main window: the warehouse UI, full-screen-ish station view ──────────────
@@ -220,16 +254,26 @@ function createWindow() {
   // then whether that account gates with PINs, THEN decide lock-vs-show. The
   // window stays hidden until this completes — no flash of the bench.
   mainWindow.once('ready-to-show', async () => {
-    await resolveSlugFromSession(); // sets autoSlug AND pinConfigured in one authed call
-    bootResolved = true;            // gate decisions may show windows from here on
-    pushGateState();                // the in-page cover locks (or lifts) only on a post-boot state
-    evaluateGate(mainWindow.webContents.getURL());
+    if (gateCache.slug) {
+      // Cached facts from the last run → gate decisions are INSTANT; the live
+      // resolution below corrects the cache in the background if it changed.
+      bootResolved = true;
+      pushGateState();
+      evaluateGate(mainWindow.webContents.getURL());
+      resolveSlugFromSession(); // background revalidate (pushes updates itself)
+    } else {
+      await resolveSlugFromSession(); // first run — no facts yet, resolve first
+      bootResolved = true;
+      pushGateState();
+      evaluateGate(mainWindow.webContents.getURL());
+    }
     // Fallback: if the page never signals lockUiReady (old build, error page,
-    // dead wifi), show anyway after 8s — a station must never be windowless.
+    // dead wifi), show anyway after 8s — a station must never be windowless
+    // and the splash must never outlive the boot.
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
         showForced = true;
-        evaluateGate(mainWindow.webContents.getURL());
+        showMain();
       }
     }, 8000);
   });
@@ -300,7 +344,7 @@ function pushGateState() {
 }
 function showLock() {
   pushGateState();                                  // the page covers itself
-  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+  showMain();
 }
 
 function lockStation() {
