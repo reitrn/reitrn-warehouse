@@ -11,4 +11,8 @@ contextBridge.exposeInMainWorld('reitrnApp', {
   // the console binds inspections to a station from this automatically; the
   // in-page station picker is only a browser fallback.
   stationName: () => ipcRenderer.invoke('getStationName'),
+  // Who PIN'd in at the lock screen — the bench inherits this identity
+  // (PIN once at app level, then roam; founder 2026-07-03). Null when locked.
+  activeUser: () => ipcRenderer.invoke('getActiveUser'),
+  onStaffChanged: (cb) => ipcRenderer.on('staffChanged', (_e, user) => cb(user)),
 });

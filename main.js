@@ -22,10 +22,24 @@ const stationName = () => store.get('stationName') || machineName;
 const PORTAL_URL = (process.env.REITRN_PORTAL_URL || 'https://portal.reitrn.com').replace(/\/$/, '');
 const WAREHOUSE_URL = process.env.REITRN_WAREHOUSE_URL || `${PORTAL_URL}/`;
 const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for printing
-// Which merchant account this station belongs to — drives the staff PIN login
-// (e.g. 'hails' for the Enterprise–3PL warehouse). Editable in Station
-// settings; read live so a change applies without a restart.
-const merchantSlug = () => process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || 'reitrntest';
+// Which merchant account this station belongs to — drives the staff PIN login.
+// AUTO-RESOLVED from whoever is signed into the portal in this app (the
+// window session's cookies ask /api/warehouse/station-context), so the lock
+// checks the RIGHT account with zero setup (founder bug, 2026-07-03: PINs
+// "not recognised" because the station still pointed at the default brand).
+// Env var and the Station setting remain as explicit overrides.
+let autoSlug = null;
+const merchantSlug = () => process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || autoSlug || 'reitrntest';
+async function resolveSlugFromSession() {
+  try {
+    const res = await session.defaultSession.fetch(`${PORTAL_URL}/api/warehouse/station-context`);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.slug && data.slug !== autoSlug) {
+      autoSlug = data.slug;
+      fetchPinConfigured(); // the gate re-checks against the real account
+    }
+  } catch { /* signed out or offline — keep whatever we had */ }
+}
 // Auto-lock the station after this much inactivity (no clicks / keys / scans),
 // so an unattended station drops back to the PIN screen. Env wins (for testing),
 // else the saved Station setting, else 15 min. Read live so changes apply at once.
@@ -168,8 +182,8 @@ function createWindow() {
   mainWindow.loadURL(WAREHOUSE_URL);
   // Decide login-vs-PIN on first paint and on every navigation, so the PIN only
   // appears once the station is signed in (account first → then PIN).
-  mainWindow.once('ready-to-show', () => evaluateGate(mainWindow.webContents.getURL()));
-  mainWindow.webContents.on('did-navigate', (_e, url) => evaluateGate(url));
+  mainWindow.once('ready-to-show', () => { evaluateGate(mainWindow.webContents.getURL()); resolveSlugFromSession(); });
+  mainWindow.webContents.on('did-navigate', (_e, url) => { evaluateGate(url); resolveSlugFromSession(); });
   mainWindow.webContents.on('did-navigate-in-page', (_e, url) => evaluateGate(url));
 
   // Keep navigation inside the portal; open anything external in the OS browser.
@@ -243,6 +257,7 @@ function lockStation() {
   activeUser = null;
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()}`);
+  if (mainWindow) mainWindow.webContents.send('staffChanged', null);
   showLock();
 }
 
@@ -286,8 +301,18 @@ function handleRequest(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Chrome Private Network Access: an https portal page fetching localhost
+  // sends a PNA preflight — answer it or detection breaks quietly.
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   if (req.method === 'GET' && req.url === '/ping') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, app: 'reitrn-warehouse', station: stationName() })); return; }
+  // The portal's browser pages call this to hand the bench over to the app:
+  // brings the station window forward (or the PIN lock if nobody's signed in).
+  if (req.method === 'GET' && req.url === '/open') {
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
+    openStation();
+    return;
+  }
   if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser })); return; }
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
@@ -331,6 +356,9 @@ ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide
 // PIN login from the lock screen. A 4–8 digit value is a typed PIN; anything else
 // (a scanned ID-card barcode) is sent as a token. Validated server-side.
 ipcMain.handle('getStationName', () => stationName());
+// The bench inherits the lock-screen identity — PIN once at app level, then
+// roam (founder, 2026-07-03). Null when locked/nobody signed in.
+ipcMain.handle('getActiveUser', () => activeUser);
 ipcMain.handle('lockStation', () => { lockStation(); });
 // Window controls for the portal's custom (frameless) top bar.
 ipcMain.handle('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
@@ -351,6 +379,8 @@ ipcMain.handle('pinLogin', async (e, value) => {
       gatePassed = true;
       armIdle(); // start the inactivity countdown for this session
       if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()} · ${activeUser.name}`);
+      // Tell the portal page who's at the bench (it inherits this identity).
+      if (mainWindow) mainWindow.webContents.send('staffChanged', activeUser);
       // Reveal the warehouse and close the lock.
       if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
       if (lockWindow) lockWindow.close();
