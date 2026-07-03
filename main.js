@@ -361,7 +361,7 @@ function handleRequest(req, res) {
     openStation();
     return;
   }
-  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, lockShowing: !!lockWindow } })); return; }
+  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, bootResolved, pageReady, windowVisible: !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) } })); return; }
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
     req.on('data', (c) => { body += c; });
