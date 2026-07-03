@@ -32,11 +32,18 @@ let autoSlug = null;
 const merchantSlug = () => process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || autoSlug || 'reitrntest';
 async function resolveSlugFromSession() {
   try {
-    // credentials 'include' is REQUIRED — ses.fetch sends no cookies without
-    // it, the portal answers 401 and the PIN gate silently never engages.
-    const res = await session.defaultSession.fetch(`${PORTAL_URL}/api/warehouse/station-context`, { credentials: 'include' });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data.slug && data.slug !== autoSlug) {
+    // Ask the PAGE, not the network stack: the main window IS the signed-in
+    // portal, so a same-origin fetch from inside it always carries the
+    // session cookies (main-process fetches silently dropped them — the gate
+    // never engaged; founder bug, 2026-07-03).
+    if (!mainWindow || mainWindow.webContents.isLoading()) {
+      await new Promise((r) => { if (mainWindow) mainWindow.webContents.once('did-stop-loading', r); else r(); });
+    }
+    const data = await mainWindow.webContents.executeJavaScript(
+      `fetch('/api/warehouse/station-context').then(r => r.ok ? r.json() : null).catch(() => null)`,
+      true,
+    );
+    if (data && data.slug && data.slug !== autoSlug) {
       autoSlug = data.slug;
       fetchPinConfigured(); // the gate re-checks against the real account
     }
