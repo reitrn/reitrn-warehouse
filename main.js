@@ -69,7 +69,6 @@ const DEFAULT_IDLE_MS = 15 * 60 * 1000;
 const idleLockMs = () => Number(process.env.REITRN_IDLE_LOCK_MS) || store.get('idleLockMs') || DEFAULT_IDLE_MS;
 
 let mainWindow = null;
-let settingsWindow = null;
 let lockWindow = null;
 let tray = null;
 let localServer = null;
@@ -117,7 +116,7 @@ async function applyWeekIcons(force){
     const svg = brandIconSvg(g.start, g.end);
     const big = nativeImage.createFromDataURL(await rasterizePng(svg, 256));
     const small = nativeImage.createFromDataURL(await rasterizePng(svg, 32));
-    for (const w of [mainWindow, settingsWindow, lockWindow]) { if (w && !w.isDestroyed()) w.setIcon(big); }
+    for (const w of [mainWindow, lockWindow]) { if (w && !w.isDestroyed()) w.setIcon(big); }
     if (tray) tray.setImage(small);
     _lastIconKey = key;
   } catch (e) { /* fall back to the static .ico */ }
@@ -448,7 +447,6 @@ ipcMain.handle('setSetting', async (e, key, value) => {
   if (key === 'idleLockMs') armIdle(); // apply the new timeout immediately
   if (key === 'merchantSlug') fetchPinConfigured(); // re-check the PIN gate for the new account
 });
-ipcMain.handle('minimizeToTray', () => { if (settingsWindow) settingsWindow.hide(); });
 
 // PIN login from the lock screen. A 4–8 digit value is a typed PIN; anything else
 // (a scanned ID-card barcode) is sent as a token. Validated server-side.
