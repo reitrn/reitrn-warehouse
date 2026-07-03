@@ -239,7 +239,7 @@ function buildAppMenu() {
       { label: 'Toggle full screen', accelerator: 'F11', click: () => mainWindow && mainWindow.setFullScreen(!mainWindow.isFullScreen()) },
       { type: 'separator' },
       { label: 'Lock / switch user', accelerator: 'CmdOrCtrl+L', click: lockStation },
-      { label: 'Printer settings…', click: openSettings },
+      { label: 'Station settings…', click: openSettings },
       { type: 'separator' },
       { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => { app.isQuitting = true; app.quit(); } },
     ] },
@@ -251,7 +251,7 @@ function buildAppMenu() {
 function openSettings() {
   if (settingsWindow) { settingsWindow.show(); settingsWindow.focus(); return; }
   settingsWindow = new BrowserWindow({
-    width: 380, height: 600, resizable: false, title: 'Printer settings',
+    width: 380, height: 600, resizable: false, title: 'Station settings',
     backgroundColor: '#FFFFFF', icon: path.join(__dirname, 'assets', 'icon.ico'),
     autoHideMenuBar: true, parent: mainWindow,
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, nodeIntegration: false },
@@ -304,7 +304,7 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open warehouse', click: openStation },
     { label: 'Lock / switch user', click: lockStation },
-    { label: 'Printer settings…', click: openSettings },
+    { label: 'Station settings…', click: openSettings },
     { type: 'separator' },
     { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } },
   ]));
@@ -371,7 +371,7 @@ function handleRequest(req, res) {
 }
 
 // ── IPC for the printer-settings window ─────────────────────────────────────
-ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), courierPrinter: store.get('courierPrinter', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName, idleLockMin: Math.round(idleLockMs() / 60000), merchantSlug: merchantSlug(), plan: autoPlan }));
+ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), courierPrinter: store.get('courierPrinter', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName, idleLockMin: Math.round(idleLockMs() / 60000), merchantSlug: merchantSlug(), plan: autoPlan, gradient: weekGradient() }));
 ipcMain.handle('refreshPrinters', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), courierPrinter: store.get('courierPrinter', '') }));
 ipcMain.handle('testPrint', async (e, printerName) => {
   try { await printRaw(printerName, generateTestLabel()); addRecentJob({ id: `test_${Date.now()}`, printer: printerName, status: 'done', time: new Date() }); return true; }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>reitrn Print Agent Lite</title>
+  <title>reitrn Warehouse — Station settings</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700;900&display=swap" rel="stylesheet">
   <style>
@@ -252,13 +252,13 @@
 </head>
 <body>
 
-  <!-- Header -->
+  <!-- Header — the living-gradient wordmark, same as the app icon this week -->
   <div class="header">
     <div>
       <div class="wordmark">
-        <span class="black">re</span><span class="teal">i</span><span class="black">trn</span><span class="teal">.</span>
+        <span id="wordmarkMain" class="black">reitrn</span><span id="wordmarkDot" class="black">.</span>
       </div>
-      <div class="wordmark-sub">print agent lite</div>
+      <div class="wordmark-sub" id="wordmarkSub">warehouse station</div>
     </div>
     <button class="tray-btn" onclick="window.reitrn.minimizeToTray()">Minimise to tray</button>
   </div>
@@ -369,7 +369,7 @@
       </div>
     </div>
 
-    <div class="footer">reitrn. v1.0.0 lite</div>
+    <div class="footer">reitrn Warehouse — station settings</div>
   </div>
 
   <script>
@@ -379,6 +379,16 @@
     // ── Init ───────────────────────────────────────────────────────────────────
 
     window.reitrn.getState().then((state) => {
+      // Living-gradient wordmark — matches the app/tray icon for this week.
+      if (state.gradient && state.gradient.start) {
+        const main = document.getElementById('wordmarkMain');
+        main.style.background = 'linear-gradient(90deg,' + state.gradient.start + ',' + state.gradient.end + ')';
+        main.style.webkitBackgroundClip = 'text';
+        main.style.backgroundClip = 'text';
+        main.style.webkitTextFillColor = 'transparent';
+        document.getElementById('wordmarkDot').style.color = state.gradient.end;
+        document.getElementById('wordmarkSub').style.color = state.gradient.end;
+      }
       setPrinters(state.printers, state.printer, state.courierPrinter);
       // The 4x6 courier slot appears for enterprise plans only — the station
       // learns its plan from the signed-in account.
