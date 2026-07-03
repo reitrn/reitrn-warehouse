@@ -216,6 +216,7 @@ function createWindow() {
     await resolveSlugFromSession(); // sets autoSlug AND pinConfigured in one authed call
     bootResolved = true;            // gate decisions may show windows from here on
     evaluateGate(mainWindow.webContents.getURL());
+    pushGateState();                // the in-page cover lifts (or locks) only on a post-boot state
   });
   mainWindow.webContents.on('did-navigate', (_e, url) => { evaluateGate(url); resolveSlugFromSession(); });
   mainWindow.webContents.on('did-navigate-in-page', (_e, url) => evaluateGate(url));
@@ -267,24 +268,21 @@ function openSettings() {
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
-// ── PIN lock (app-only) ──────────────────────────────────────────────────────
-// Shows the scan-or-type PIN screen and hides the warehouse until a staff member
-// signs in. "Lock / switch user" returns here without quitting.
+// ── PIN lock — IN-PAGE, one window always ─────────────────────────────────────
+// The lock is a full-screen overlay RENDERED BY THE PORTAL PAGE inside the one
+// app window (founder, 2026-07-03: the separate lock window felt like "a new
+// screen entirely" — self-contained or nothing). The shell owns the STATE
+// (locked / who) and pushes it; the page draws it. lock/index.html and
+// lock-preload.js are retired.
+function gateStatePayload() {
+  return { locked: pinConfigured && !gatePassed, pinConfigured, user: activeUser, station: stationName(), bootResolved };
+}
+function pushGateState() {
+  if (mainWindow) mainWindow.webContents.send('gateState', gateStatePayload());
+}
 function showLock() {
-  if (mainWindow) mainWindow.hide();
-  if (lockWindow) { lockWindow.show(); lockWindow.focus(); return; }
-  lockWindow = new BrowserWindow({
-    width: 1280, height: 832, minWidth: 1024, minHeight: 700, title: 'Sign in — reitrn Warehouse',
-    backgroundColor: '#F7F7F9', icon: path.join(__dirname, 'assets', 'icon.ico'),
-    autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, 'lock-preload.js'), contextIsolation: true, nodeIntegration: false },
-    show: false,
-  });
-  lockWindow.maximize();           // full size, not a little box — the PIN screen centres itself
-  lockWindow.once('ready-to-show', () => lockWindow && lockWindow.show());
-  lockWindow.loadFile('lock/index.html');
-  applyWeekIcons(true);   // colour the new lock window's icon + catch a week rollover
-  lockWindow.on('closed', () => { lockWindow = null; });
+  pushGateState();                                  // the page covers itself
+  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
 }
 
 function lockStation() {
@@ -399,6 +397,8 @@ ipcMain.handle('getStationName', () => stationName());
 // The bench inherits the lock-screen identity — PIN once at app level, then
 // roam (founder, 2026-07-03). Null when locked/nobody signed in.
 ipcMain.handle('getActiveUser', () => activeUser);
+// The in-page lock overlay pulls this on mount, then listens for pushes.
+ipcMain.handle('getGateState', () => gateStatePayload());
 ipcMain.handle('lockStation', () => { lockStation(); });
 // Window controls for the portal's custom (frameless) top bar.
 ipcMain.handle('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
@@ -419,11 +419,11 @@ ipcMain.handle('pinLogin', async (e, value) => {
       gatePassed = true;
       armIdle(); // start the inactivity countdown for this session
       if (tray) tray.setToolTip(`reitrn Warehouse · ${stationName()} · ${activeUser.name}`);
-      // Tell the portal page who's at the bench (it inherits this identity).
+      // Tell the portal page who's at the bench (it inherits this identity)
+      // and that the in-page lock may dismiss.
       if (mainWindow) mainWindow.webContents.send('staffChanged', activeUser);
-      // Reveal the warehouse and close the lock.
+      pushGateState();
       if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-      if (lockWindow) lockWindow.close();
       return { ok: true };
     }
     return { error: data.error || 'Not recognised' };

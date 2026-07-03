@@ -15,4 +15,9 @@ contextBridge.exposeInMainWorld('reitrnApp', {
   // (PIN once at app level, then roam; founder 2026-07-03). Null when locked.
   activeUser: () => ipcRenderer.invoke('getActiveUser'),
   onStaffChanged: (cb) => ipcRenderer.on('staffChanged', (_e, user) => cb(user)),
+  // The IN-PAGE lock (one window, no separate lock screen): the page renders
+  // the full-screen lock from this state and validates PINs via pinLogin.
+  gateState: () => ipcRenderer.invoke('getGateState'),
+  onGateState: (cb) => ipcRenderer.on('gateState', (_e, state) => cb(state)),
+  pinLogin: (value) => ipcRenderer.invoke('pinLogin', value),
 });
