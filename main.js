@@ -152,7 +152,12 @@ async function fetchPinConfigured(silent) {
 // The PIN is SECONDARY to the account: it only appears once the station is signed
 // in (the window is on an authenticated page, not /login). So the order is always
 // email login first → then PIN. On the login page we just show the window.
+// NOTHING shows until the boot resolution (account + PIN policy) completes —
+// the first thing a worker ever sees is the lock or the login, never a flash
+// of the bench (founder, 2026-07-03).
+let bootResolved = false;
 function evaluateGate(url) {
+  if (!bootResolved) return;
   let p = '';
   try { p = new URL(url).pathname } catch { /* about:blank etc. */ }
   const onLogin = p.startsWith('/login') || p.startsWith('/auth') || p === '' || p === '/'
@@ -209,6 +214,7 @@ function createWindow() {
   // window stays hidden until this completes — no flash of the bench.
   mainWindow.once('ready-to-show', async () => {
     await resolveSlugFromSession(); // sets autoSlug AND pinConfigured in one authed call
+    bootResolved = true;            // gate decisions may show windows from here on
     evaluateGate(mainWindow.webContents.getURL());
   });
   mainWindow.webContents.on('did-navigate', (_e, url) => { evaluateGate(url); resolveSlugFromSession(); });
@@ -257,6 +263,7 @@ function openSettings() {
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   settingsWindow.loadFile('settings/index.html');
+  applyWeekIcons(true); // recolour the new window's icon — it's created after the boot pass
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
