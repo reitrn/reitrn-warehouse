@@ -109,7 +109,9 @@ app.on('ready', () => {
   createTray();
   createWindow();
   startLocalServer();
-  fetchPinConfigured();
+  // NOTE: pin-status is resolved in ready-to-show BEFORE anything is shown —
+  // account first, then the gate decision, so a worker cold-starting the app
+  // meets the PIN lock, never a flash of the bench (founder, 2026-07-03).
   app.setLoginItemSettings({ openAtLogin: store.get('autoStart', true), name: 'reitrn Warehouse' });
   // Colour the running window + tray icon for this week, and re-check every 6h so an
   // always-on station rolls over to the new colour without ever being restarted.
@@ -118,13 +120,13 @@ app.on('ready', () => {
 });
 
 // Does this merchant use PIN login? (No users → never gate.)
-async function fetchPinConfigured() {
+async function fetchPinConfigured(silent) {
   try {
     const res = await fetch(`${PORTAL_URL}/api/warehouse/pin-status?merchant=${encodeURIComponent(merchantSlug())}`);
     const data = await res.json().catch(() => ({}));
     pinConfigured = !!(data && data.configured);
   } catch { pinConfigured = false; }
-  if (mainWindow) evaluateGate(mainWindow.webContents.getURL());
+  if (!silent && mainWindow) evaluateGate(mainWindow.webContents.getURL());
 }
 
 // The PIN is SECONDARY to the account: it only appears once the station is signed
@@ -182,7 +184,14 @@ function createWindow() {
   mainWindow.loadURL(WAREHOUSE_URL);
   // Decide login-vs-PIN on first paint and on every navigation, so the PIN only
   // appears once the station is signed in (account first → then PIN).
-  mainWindow.once('ready-to-show', () => { evaluateGate(mainWindow.webContents.getURL()); resolveSlugFromSession(); });
+  // Cold start: resolve WHOSE account this station is (window-session cookies),
+  // then whether that account gates with PINs, THEN decide lock-vs-show. The
+  // window stays hidden until this completes — no flash of the bench.
+  mainWindow.once('ready-to-show', async () => {
+    await resolveSlugFromSession();
+    await fetchPinConfigured(true);
+    evaluateGate(mainWindow.webContents.getURL());
+  });
   mainWindow.webContents.on('did-navigate', (_e, url) => { evaluateGate(url); resolveSlugFromSession(); });
   mainWindow.webContents.on('did-navigate-in-page', (_e, url) => evaluateGate(url));
 
