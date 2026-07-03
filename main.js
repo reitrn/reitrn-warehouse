@@ -77,6 +77,7 @@ let idleTimer = null;      // auto-lock countdown (armed only while signed in)
 let gatePassed = false;    // PIN gate satisfied this session
 let pinConfigured = !!gateCache.pinConfigured; // cached from last run; live-corrected on boot
 let recentJobs = (store.get('recentJobs', []) || []).map((j) => ({ ...j, time: j.time ? new Date(j.time) : new Date() }));
+let pageConsoleLog = [];   // last ~200 page console entries — served on /console-log
 
 app.setName('reitrn Warehouse');
 // Windows: group + icon the taskbar entry under our identity, not Electron's.
@@ -252,6 +253,13 @@ function createWindow() {
   // Announce we're the desktop app so the portal login hides "Create account"
   // (accounts are made on the web; the app only signs in).
   mainWindow.webContents.setUserAgent(`${mainWindow.webContents.getUserAgent()} reitrnWarehouse/${app.getVersion()}`);
+  // Page-console tap → GET /console-log on the local server. The page is a
+  // remote site (no devtools in production), so this is the only window into
+  // client-side errors on stations.
+  mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    pageConsoleLog.push({ at: new Date().toISOString(), level, message: String(message).slice(0, 500), source: `${sourceId}:${line}` });
+    if (pageConsoleLog.length > 200) pageConsoleLog.shift();
+  });
   mainWindow.loadURL(WAREHOUSE_URL);
   // Decide login-vs-PIN on first paint and on every navigation, so the PIN only
   // appears once the station is signed in (account first → then PIN).
@@ -405,6 +413,43 @@ function handleRequest(req, res) {
     return;
   }
   if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, bootResolved, pageReady, windowVisible: !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) } })); return; }
+  // The page's own console (errors and all) — the only debugging window into a
+  // remote production page on a station. ?url=1 adds the page's current URL.
+  if (req.method === 'GET' && req.url.startsWith('/console-log')) {
+    const currentUrl = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getURL() : null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, url: currentUrl, log: pageConsoleLog }));
+    return;
+  }
+  // Read page state (localhost-only, same trust as /open): POST a JS
+  // expression, get its JSON result — the self-verify hook for app-side work.
+  if (req.method === 'POST' && req.url === '/eval') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', async () => {
+      try {
+        const expr = JSON.parse(body).js;
+        const result = await mainWindow.webContents.executeJavaScript(`Promise.resolve((() => { ${expr} })()).then(v => JSON.stringify(v ?? null))`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, result: JSON.parse(result) }));
+      } catch (err) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
+  // Drive the station page to a portal path (localhost-only server — same
+  // trust as /open). Debugging + future remote-assist hook.
+  if (req.method === 'GET' && req.url.startsWith('/goto')) {
+    const target = new URL(req.url, 'http://localhost').searchParams.get('path') || '/';
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.executeJavaScript(`window.location.href = ${JSON.stringify(target)}`).catch(() => {});
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, target }));
+    return;
+  }
   if (req.method === 'POST' && req.url === '/print') {
     let body = '';
     req.on('data', (c) => { body += c; });
