@@ -23,4 +23,10 @@ contextBridge.exposeInMainWorld('reitrnApp', {
   // No-flash handshake: the page calls this once its lock overlay is mounted
   // and covering — only then does the shell make the window visible.
   lockUiReady: () => ipcRenderer.invoke('lockUiReady'),
+  // Station settings INSIDE the app (founder, 2026-07-03: one window, no
+  // separate panel) — same IPC the tray settings window uses.
+  getState: () => ipcRenderer.invoke('getState'),
+  setSetting: (key, value) => ipcRenderer.invoke('setSetting', key, value),
+  refreshPrinters: () => ipcRenderer.invoke('refreshPrinters'),
+  testPrint: (printer) => ipcRenderer.invoke('testPrint', printer),
 });
