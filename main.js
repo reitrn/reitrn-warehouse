@@ -275,10 +275,13 @@ function openSettings() {
   settingsWindow = new BrowserWindow({
     width: 380, height: 600, resizable: false, title: 'Station settings',
     backgroundColor: '#FFFFFF', icon: path.join(__dirname, 'assets', 'icon.ico'),
-    autoHideMenuBar: true, parent: mainWindow,
+    autoHideMenuBar: true,
+    // NO parent: a child of a hidden main window opens invisibly (founder hit
+    // this from the tray with the app closed) — settings stands alone.
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   settingsWindow.loadFile('settings/index.html');
+  settingsWindow.once('ready-to-show', () => { if (settingsWindow) { settingsWindow.show(); settingsWindow.focus(); settingsWindow.moveTop(); } });
   applyWeekIcons(true); // recolour the new window's icon — it's created after the boot pass
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
