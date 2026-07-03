@@ -325,6 +325,23 @@
         </button>
       </div>
 
+      <!-- 4x6 courier printer — enterprise plans only (the station learns its
+           plan from the signed-in account; self-serve stays one-printer). -->
+      <div id="courierBlock" style="margin-bottom:10px;display:none;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">
+          4x6 Courier Printer
+        </div>
+        <div class="printer-row" style="margin-bottom:6px;">
+          <select id="courierSelect" style="flex:1;" onchange="saveCourierPrinter(this.value)">
+            <option value="">Select a printer…</option>
+          </select>
+        </div>
+        <button class="btn btn-surface" id="courierTestBtn" onclick="testCourierPrint()" style="width:100%">
+          Test Print (4x6)
+        </button>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Pallet, dispatch and courier labels print here.</div>
+      </div>
+
       <div class="test-result" id="testResult"></div>
     </div>
 
@@ -362,7 +379,12 @@
     // ── Init ───────────────────────────────────────────────────────────────────
 
     window.reitrn.getState().then((state) => {
-      setPrinters(state.printers, state.printer);
+      setPrinters(state.printers, state.printer, state.courierPrinter);
+      // The 4x6 courier slot appears for enterprise plans only — the station
+      // learns its plan from the signed-in account.
+      if (state.plan === 'enterprise_3pl' || state.plan === 'enterprise_brand') {
+        document.getElementById('courierBlock').style.display = '';
+      }
       document.getElementById('autoStart').checked = state.autoStart !== false;
       renderJobs(state.recentJobs || []);
       const input = document.getElementById('stationInput');
@@ -390,19 +412,22 @@
 
     // ── Printers ───────────────────────────────────────────────────────────────
 
-    function setPrinters(printers, selected) {
+    function setPrinters(printers, selected, courierSelected) {
       currentPrinters = printers;
       selectedPrinter = selected || '';
 
-      const sel = document.getElementById('printerSelect');
-      sel.innerHTML = '<option value="">Select a printer…</option>';
-      printers.forEach((name) => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        if (name === selected) opt.selected = true;
-        sel.appendChild(opt);
-      });
+      const fill = (el, chosen) => {
+        el.innerHTML = '<option value="">Select a printer…</option>';
+        printers.forEach((name) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          if (name === chosen) opt.selected = true;
+          el.appendChild(opt);
+        });
+      };
+      fill(document.getElementById('printerSelect'), selected);
+      fill(document.getElementById('courierSelect'), courierSelected);
     }
 
     function savePrinter(name) {
@@ -410,9 +435,27 @@
       window.reitrn.setSetting('printer', name);
     }
 
+    function saveCourierPrinter(name) {
+      window.reitrn.setSetting('courierPrinter', name);
+    }
+
     function refreshPrinters() {
       window.reitrn.refreshPrinters().then((state) => {
-        setPrinters(state.printers, state.printer);
+        setPrinters(state.printers, state.printer, state.courierPrinter);
+      });
+    }
+
+    function testCourierPrint() {
+      const printer = document.getElementById('courierSelect').value;
+      if (!printer) { alert('Please select the 4x6 printer first'); return; }
+      const result = document.getElementById('testResult');
+      result.className = 'test-result';
+      result.textContent = 'Printing 4x6 test label…';
+      result.style.display = 'block';
+      window.reitrn.testPrint(printer).then((ok) => {
+        result.className = ok ? 'test-result success' : 'test-result error';
+        result.textContent = ok ? '✓ Test print sent' : '✗ Print failed';
+        setTimeout(() => { result.style.display = 'none'; }, 3000);
       });
     }
 

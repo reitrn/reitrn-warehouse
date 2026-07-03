@@ -29,6 +29,7 @@ const LOCAL_PORT = 3010; // same contract the warehouse UI already calls for pri
 // "not recognised" because the station still pointed at the default brand).
 // Env var and the Station setting remain as explicit overrides.
 let autoSlug = null;
+let autoPlan = null; // the signed-in account's plan — drives printer slots (enterprise = label + 4x6)
 const merchantSlug = () => process.env.REITRN_MERCHANT_SLUG || store.get('merchantSlug') || autoSlug || 'reitrntest';
 async function resolveSlugFromSession() {
   try {
@@ -45,6 +46,7 @@ async function resolveSlugFromSession() {
     );
     if (data && data.slug) {
       autoSlug = data.slug;
+      autoPlan = data.plan || null;
       // Same authed call answers whether this account gates with PINs — the
       // separate pin-status round-trip 401'd from the main process (no
       // cookies) and silently disabled the gate.
@@ -346,16 +348,21 @@ function handleRequest(req, res) {
     req.on('end', () => {
       try {
         const job = JSON.parse(body);
-        const printerName = store.get('printer', '');
-        if (!printerName) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'No printer configured' })); return; }
+        // Role routing (the FULL print-agent contract): 'courier' → the 4x6
+        // printer (dispatch/courier labels), anything else / no role → the
+        // small-label printer. Role-less jobs from the self-serve workbench
+        // keep working unchanged.
+        const role = job.role === 'courier' ? 'courier' : 'barcode';
+        const printerName = role === 'courier' ? store.get('courierPrinter', '') : store.get('printer', '');
+        if (!printerName) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: role === 'courier' ? 'No 4x6 courier printer configured' : 'No label printer configured' })); return; }
         res.writeHead(202, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
         const data = job.data || job.zpl || job.tspl || '';
         const id = `local_${Date.now()}`;
-        if (!data) { addRecentJob({ id, printer: printerName, status: 'error', time: new Date(), error: 'No printable data' }); return; }
-        addRecentJob({ id, printer: printerName, status: 'printing', time: new Date() });
+        if (!data) { addRecentJob({ id, printer: printerName, printerRole: role, status: 'error', time: new Date(), error: 'No printable data' }); return; }
+        addRecentJob({ id, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
         printRaw(printerName, data)
-          .then(() => addRecentJob({ id, printer: printerName, status: 'done', time: new Date() }))
-          .catch((err) => addRecentJob({ id, printer: printerName, status: 'error', time: new Date(), error: err.message }));
+          .then(() => addRecentJob({ id, printer: printerName, printerRole: role, status: 'done', time: new Date() }))
+          .catch((err) => addRecentJob({ id, printer: printerName, printerRole: role, status: 'error', time: new Date(), error: err.message }));
       } catch (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: err.message })); }
     });
     return;
@@ -364,8 +371,8 @@ function handleRequest(req, res) {
 }
 
 // ── IPC for the printer-settings window ─────────────────────────────────────
-ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName, idleLockMin: Math.round(idleLockMs() / 60000), merchantSlug: merchantSlug() }));
-ipcMain.handle('refreshPrinters', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', '') }));
+ipcMain.handle('getState', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), courierPrinter: store.get('courierPrinter', ''), autoStart: store.get('autoStart', true), recentJobs: recentJobs.slice(0, 20), stationName: stationName(), machineName, idleLockMin: Math.round(idleLockMs() / 60000), merchantSlug: merchantSlug(), plan: autoPlan }));
+ipcMain.handle('refreshPrinters', async () => ({ printers: await getInstalledPrinters(), printer: store.get('printer', ''), courierPrinter: store.get('courierPrinter', '') }));
 ipcMain.handle('testPrint', async (e, printerName) => {
   try { await printRaw(printerName, generateTestLabel()); addRecentJob({ id: `test_${Date.now()}`, printer: printerName, status: 'done', time: new Date() }); return true; }
   catch (err) { addRecentJob({ id: `test_${Date.now()}`, printer: printerName, status: 'error', time: new Date(), error: err.message }); return false; }
