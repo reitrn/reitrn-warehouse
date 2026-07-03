@@ -187,7 +187,12 @@ function evaluateGate(url) {
 }
 function showMain() {
   closeSplash();
-  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+  if (!mainWindow) return;
+  // maximize() also SHOWS the window (it force-showed at creation and was the
+  // true source of every boot flash) — so it happens HERE, at the reveal.
+  if (!mainWindow.isVisible()) mainWindow.maximize();
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 app.on('window-all-closed', () => { /* keep running in tray (print server + station) */ });
@@ -243,7 +248,8 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'app-preload.js'), contextIsolation: true, nodeIntegration: false },
     show: false,
   });
-  mainWindow.maximize();
+  // NOTE: no maximize() here — on Windows it force-shows the hidden window
+  // (the source of every boot flash). showMain() maximizes at the reveal.
   // Announce we're the desktop app so the portal login hides "Create account"
   // (accounts are made on the web; the app only signs in).
   mainWindow.webContents.setUserAgent(`${mainWindow.webContents.getUserAgent()} reitrnWarehouse/${app.getVersion()}`);
