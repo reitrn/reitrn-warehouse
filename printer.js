@@ -142,7 +142,7 @@ function printViaUsbPort(printerName, data) {
     }
 
     const portPath = `\\\\.\\${portName}`;
-    const bytes    = Buffer.from(data, 'utf8');
+    const bytes    = (Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8'));
 
     // ── Fast path: pure Node.js open + write (no child process, ~50ms) ──
     fs.open(portPath, 'w', (openErr, fd) => {
@@ -243,7 +243,7 @@ function printViaCopy(printerName, data) {
     const path = require('path');
 
     const dataFile = path.join(os.tmpdir(), `reitrn_${Date.now()}.prn`);
-    fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
+    fs.writeFileSync(dataFile, (Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8')));
 
     const dest = `\\\\localhost\\${printerName}`;
     console.log(`[Printer] copy /b "${dataFile}" "${dest}"`);
@@ -278,7 +278,7 @@ function printViaPowerShell(printerName, data) {
     const dataFile = path.join(os.tmpdir(), `reitrn_${ts}.prn`);
     const psFile   = path.join(os.tmpdir(), `reitrn_${ts}.ps1`);
 
-    fs.writeFileSync(dataFile, Buffer.from(data, 'utf8'));
+    fs.writeFileSync(dataFile, (Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8')));
 
     // No backslash escaping - PowerShell single-quoted strings treat \ as literal
     const printerEscaped = printerName.replace(/'/g, "''");

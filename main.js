@@ -585,7 +585,8 @@ function handleRequest(req, res) {
         const printerName = role === 'courier' ? store.get('courierPrinter', '') : store.get('printer', '');
         if (!printerName) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: role === 'courier' ? 'No 4x6 courier printer configured' : 'No label printer configured' })); return; }
         res.writeHead(202, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
-        const data = job.data || job.zpl || job.tspl || '';
+        // encoding 'base64' = binary job (courier label bitmap): decode before it hits the printer
+        const data = job.encoding === 'base64' && job.data ? Buffer.from(String(job.data), 'base64') : (job.data || job.zpl || job.tspl || '');
         const id = `local_${Date.now()}`;
         if (!data) { addRecentJob({ id, printer: printerName, printerRole: role, status: 'error', time: new Date(), error: 'No printable data' }); return; }
         addRecentJob({ id, printer: printerName, printerRole: role, status: 'printing', time: new Date() });
