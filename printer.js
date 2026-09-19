@@ -351,17 +351,53 @@ Write-Host "Done"
  * Generate a simple test label in TSPL format (4x6 inch label).
  * Works with most thermal printers (TSC, Zebra, etc.)
  */
-function generateTestLabel() {
-  return `SIZE 4 x 6
-DENSITY 8
-REFERENCE 0,0
-DIRECTION 0
-CLS
-TEXT 50,100,"2",0,1,1,"reitrn Print Agent Lite"
-TEXT 50,150,"1",0,1,1,"Test Label"
-TEXT 50,200,"0",0,1,1,"Ready for printing"
-PRINT 1
-`;
+/**
+ * Printer command language, inferred from the Windows printer name.
+ *
+ * Zebra speaks ZPL, TSC speaks TSPL, and feeding one the other's commands
+ * produces NOTHING — no error, no label, no clue. The old test label was
+ * always TSPL (carried over from the Lite agent, which only ever drove TSC
+ * printers), so pressing Test print on a Zebra silently did nothing and looked
+ * like a broken app or a broken printer. It cost an afternoon on 2026-09-19
+ * while the real print path was working perfectly.
+ *
+ * Real jobs are unaffected — those arrive with the language already chosen by
+ * the warehouse UI. This is only for the self-test.
+ */
+function detectPrinterLanguage(printerName) {
+  const n = String(printerName || '').toLowerCase();
+  if (/\btsc\b|\bda\d{3}\b|\bttp\b|\btdp\b/.test(n)) return 'tspl';
+  if (/zebra|zdesigner|\bzpl\b|\bg[kx]\d{3}|\bzd\d|\bzt\d/.test(n)) return 'zpl';
+  return 'zpl'; // most label printers here are Zebra; a wrong guess prints nothing, never garbage
 }
 
-module.exports = { getInstalledPrinters, printRaw, generateTestLabel, getPortNameForPrinter: getPortName };
+function generateTestLabel(printerName) {
+  const name = String(printerName || '').slice(0, 34);
+  if (detectPrinterLanguage(printerName) === 'zpl') {
+    return [
+      '^XA',
+      '^CI28',
+      '^FO30,30^A0N,32,32^FDreitrn Warehouse^FS',
+      '^FO30,74^A0N,24,24^FDTest label^FS',
+      '^FO30,108^A0N,20,20^FD' + name + '^FS',
+      '^FO30,140^BY2^BCN,70,Y,N,N^FDTEST-OK^FS',
+      '^XZ',
+      '',
+    ].join('\n');
+  }
+  return [
+    'SIZE 4 x 6',
+    'DENSITY 8',
+    'REFERENCE 0,0',
+    'DIRECTION 0',
+    'CLS',
+    'TEXT 50,100,"2",0,1,1,"reitrn Warehouse"',
+    'TEXT 50,150,"1",0,1,1,"Test label"',
+    'TEXT 50,200,"0",0,1,1,"' + name + '"',
+    'BARCODE 50,240,"128",60,1,0,2,2,"TEST-OK"',
+    'PRINT 1',
+    '',
+  ].join('\n');
+}
+
+module.exports = { getInstalledPrinters, printRaw, generateTestLabel, detectPrinterLanguage, getPortNameForPrinter: getPortName };
