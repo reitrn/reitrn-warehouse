@@ -397,6 +397,30 @@ function openStation() {
 // carries no cookies), stream the file to R2, mark the inspection uploaded,
 // delete the pair. Any failure leaves the pair for the next tick — a station
 // can sit in a dead zone over a weekend and lose nothing.
+// Quarantine: a recording we could not deliver is MOVED, never deleted. The
+// pair lands in video-outbox/failed/ with a reason file, so it can be
+// recovered by hand and so a real problem is visible instead of silent.
+function quarantineVideoEntry(filePath, sidecarPath, reason) {
+  try {
+    const dir = path.join(app.getPath('userData'), 'video-outbox', 'failed');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = path.basename(filePath);
+    if (fs.existsSync(filePath)) fs.renameSync(filePath, path.join(dir, base));
+    if (fs.existsSync(sidecarPath)) fs.renameSync(sidecarPath, path.join(dir, base + '.json'));
+    fs.writeFileSync(path.join(dir, base + '.reason.txt'), `${new Date().toISOString()}  ${reason}
+`);
+    console.error(`[VideoOutbox] QUARANTINED ${base}: ${reason} — file kept in failed/`);
+  } catch (err) {
+    // Even quarantine failing must not delete anything — leave it where it is.
+    console.error('[VideoOutbox] quarantine failed, entry left in place:', err.message);
+  }
+}
+
+// Reap by AGE, not by one bad response. A sidecar older than this cannot be
+// signed any more (the portal token lifetime is 7 days), so it is genuinely
+// undeliverable — but it is still quarantined rather than deleted.
+const VIDEO_ENTRY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 let videoDraining = false;
 async function drainVideoOutbox() {
   if (videoDraining) return;
@@ -411,12 +435,24 @@ async function drainVideoOutbox() {
       try {
         if (!fs.existsSync(filePath)) { fs.unlinkSync(sidecarPath); continue; } // orphan sidecar
         const meta = JSON.parse(fs.readFileSync(sidecarPath, 'utf8'));
+        // Too old to ever be signed — quarantine so it stops being retried
+        // forever, but keep the file: it may still be wanted as evidence.
+        const ageMs = Date.now() - (Number(meta.createdAt) || fs.statSync(sidecarPath).mtimeMs);
+        if (ageMs > VIDEO_ENTRY_MAX_AGE_MS) { quarantineVideoEntry(filePath, sidecarPath, `undeliverable for ${Math.round(ageMs / 86400000)} days`); continue; }
         // 1) Fresh presigned URL (they expire — never stored).
         const signRes = await fetch(`${meta.origin}/api/video-outbox`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: meta.token, action: 'sign' }),
         });
-        if (signRes.status === 401) { fs.unlinkSync(sidecarPath); fs.unlinkSync(filePath); continue; } // token expired (7d) — dead entry
+        // NEVER delete a recording because of one HTTP response. A 401 was
+        // treated as "token expired (7d), dead entry" and unlinked the file —
+        // but 401 also means a rotated signing secret, a deploy that changed
+        // token validation, or a transient auth misconfiguration. In every one
+        // of those cases this destroyed the ONLY copy of an inspection video:
+        // the evidence kept to defend a disputed refund, gone silently.
+        // Quarantine instead — the file stays, the backlog is visible, and a
+        // genuinely dead entry is reaped on AGE below, not on one 401.
+        if (signRes.status === 401) { quarantineVideoEntry(filePath, sidecarPath, 'sign rejected (401)'); continue; }
         if (!signRes.ok) continue; // 503 unconfigured / transient — retry next tick
         const { url } = await signRes.json().catch(() => ({}));
         if (!url) continue;
@@ -458,6 +494,17 @@ function videoOutboxCount() {
   } catch { return 0; }
 }
 
+// Recordings that could NOT be delivered and are sitting in failed/. This must
+// be surfaced: a quarantined video is a real problem (evidence that never
+// reached R2), and the plain pending count cannot distinguish "nothing to do"
+// from "everything failed".
+function videoQuarantineCount() {
+  try {
+    const dir = path.join(app.getPath('userData'), 'video-outbox', 'failed');
+    return fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')).length : 0;
+  } catch { return 0; }
+}
+
 // ── Local print server (localhost:3010) — same /ping + /print contract the
 // warehouse UI already uses, so printing works with no separate agent. ────────
 function startLocalServer() {
@@ -486,7 +533,7 @@ function handleRequest(req, res) {
     openStation();
     return;
   }
-  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, videoOutbox: videoOutboxCount(), gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, bootResolved, pageReady, windowVisible: !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) } })); return; }
+  if (req.method === 'GET' && req.url === '/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, printer: store.get('printer', ''), station: stationName(), machine: machineName, user: activeUser, videoOutbox: videoOutboxCount(), videoQuarantined: videoQuarantineCount(), gate: { slug: merchantSlug(), autoSlug, pinConfigured, gatePassed, bootResolved, pageReady, windowVisible: !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) } })); return; }
   // The page's own console (errors and all) — the only debugging window into a
   // remote production page on a station. ?url=1 adds the page's current URL.
   if (req.method === 'GET' && req.url.startsWith('/console-log')) {
